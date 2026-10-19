@@ -93,6 +93,7 @@ input[type=text],input[type=number],input[type=password],input[type=date],select
   width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--input);
   font-size:16px;text-align:right;-webkit-appearance:none;appearance:none}
 input.left,select{text-align:left}
+input::placeholder{color:var(--muted);opacity:1}
 input:focus,select:focus{outline:2px solid var(--navy2);outline-offset:-1px}
 .del{border:0;background:none;color:var(--minus);font-size:12px;padding:4px 6px}
 .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font-size:16px;font-weight:700;
@@ -729,8 +730,8 @@ const EXIT_FIELDS = [
     ['exitHusbandWorkStart','夫が会社員になった年齢','int'], ['exitWifeWorkStart','妻が会社員になった年齢','int'],
     ['exitWageGrowth','昇給率（年・物価を除く）','pct','初期値1%']]],
   ['年金（ねんきん定期便があれば）', [
-    ['exitHusbandPension','夫の年金（65歳・年額）','yen','0なら年収から自動で概算<span id="hEstHint"></span>'], ['exitHusbandPensionAge','夫の受給開始年齢','int','65より遅いと月0.7%増、早いと月0.4%減'],
-    ['exitWifePension','妻の年金（65歳・年額）','yen','0なら年収から自動で概算<span id="wEstHint"></span>'], ['exitWifePensionAge','妻の受給開始年齢','int'],
+    ['exitHusbandPension','夫の年金（65歳・年額）','yen','薄い数字＝年収からの自動計算<span id="hEstHint"></span>'], ['exitHusbandPensionAge','夫の受給開始年齢','int','65より遅いと月0.7%増、早いと月0.4%減'],
+    ['exitWifePension','妻の年金（65歳・年額）','yen','薄い数字＝年収からの自動計算<span id="wEstHint"></span>'], ['exitWifePensionAge','妻の受給開始年齢','int'],
     ['exitPensionTaxRate','年金から引かれる税・社会保険料','pct','概算10〜15%'],
     ['exitPensionSlide','年金の目減り（年あたり）','pct','物価に追いつかない分。0なら物価並みに増える想定']]],
   ['取り崩し・税・インフレ', [
@@ -826,6 +827,7 @@ function viewExit(){
   const draft = {...a};
   const p0 = exitParams(a);
   const val = (k,t) => { const v = p0[k];
+    if ((k==='exitHusbandPension' || k==='exitWifePension') && !v) return '';
     return t==='pct' ? +(v*100).toFixed(3) : t==='yen' ? Math.round(v).toLocaleString('ja-JP') : (v ? v : ''); };
   $('#app').innerHTML = heroHTML() + `<main>
     <div id="exitResult"></div>
@@ -846,8 +848,8 @@ function viewExit(){
   });
   form.querySelectorAll('input').forEach(inp => {
     if (inp.dataset.t === 'yen'){
-      inp.addEventListener('focus', () => { inp.value = String(num(inp.value)); inp.select(); });
-      inp.addEventListener('blur', () => { inp.value = Math.round(num(inp.value)).toLocaleString('ja-JP'); });
+      inp.addEventListener('focus', () => { if (inp.value !== '') inp.value = String(num(inp.value)); inp.select(); });
+      inp.addEventListener('blur', () => { if (inp.value.trim() !== '') inp.value = Math.round(num(inp.value)).toLocaleString('ja-JP'); });
     }
     inp.addEventListener('change', () => { readForm(); drawExit(draft); });
   });
@@ -871,10 +873,13 @@ function drawExit(a){
   }
   const line = (lb, v, note='', cls='') => `<tr><td>${lb}${note?`<div class="cat">${note}</div>`:''}</td><td class="${cls}">${v}</td></tr>`;
   const okA = r.fA >= r.nominal, okB = r.fB >= r.nominal;
-  const hint = (id, est, src, startAge, pen) => { const el = document.getElementById(id); if (!el) return;
-    el.textContent = src === '概算' ? `（自動計算：65歳から${man(est.total)}／${startAge}歳開始なら${man(pen)}）` : '（入力した額を使用中）'; };
-  hint('hEstHint', r.hEst, r.hSrc, r.p.exitHusbandPensionAge, r.hPen);
-  hint('wEstHint', r.wEst, r.wSrc, r.p.exitWifePensionAge, r.wPen);
+  const hint = (id, name, est, src, startAge, pen) => {
+    const inp = document.querySelector(`input[name="${name}"]`);
+    if (inp) inp.placeholder = Math.round(est.total).toLocaleString('ja-JP');
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = src === '概算' ? `（${startAge}歳開始なら${man(pen)}）` : '（入力した額を使用中。空にすると自動に戻る）'; };
+  hint('hEstHint', 'exitHusbandPension', r.hEst, r.hSrc, r.p.exitHusbandPensionAge, r.hPen);
+  hint('wEstHint', 'exitWifePension', r.wEst, r.wSrc, r.p.exitWifePensionAge, r.wPen);
   box.innerHTML = `
     <section class="card">
       <h2>老後に必要な資産（目標額）</h2>
