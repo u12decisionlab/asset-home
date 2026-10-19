@@ -729,8 +729,8 @@ const EXIT_FIELDS = [
     ['exitHusbandWorkStart','夫が会社員になった年齢','int'], ['exitWifeWorkStart','妻が会社員になった年齢','int'],
     ['exitWageGrowth','昇給率（年・物価を除く）','pct','初期値1%']]],
   ['年金（ねんきん定期便があれば）', [
-    ['exitHusbandPension','夫の年金（65歳・年額）','yen','0なら上の年収から概算'], ['exitHusbandPensionAge','夫の受給開始年齢','int','65より遅いと月0.7%増、早いと月0.4%減'],
-    ['exitWifePension','妻の年金（65歳・年額）','yen','0なら上の年収から概算'], ['exitWifePensionAge','妻の受給開始年齢','int'],
+    ['exitHusbandPension','夫の年金（65歳・年額）','yen','0なら年収から自動で概算<span id="hEstHint"></span>'], ['exitHusbandPensionAge','夫の受給開始年齢','int','65より遅いと月0.7%増、早いと月0.4%減'],
+    ['exitWifePension','妻の年金（65歳・年額）','yen','0なら年収から自動で概算<span id="wEstHint"></span>'], ['exitWifePensionAge','妻の受給開始年齢','int'],
     ['exitPensionTaxRate','年金から引かれる税・社会保険料','pct','概算10〜15%'],
     ['exitPensionSlide','年金の目減り（年あたり）','pct','物価に追いつかない分。0なら物価並みに増える想定']]],
   ['取り崩し・税・インフレ', [
@@ -871,6 +871,10 @@ function drawExit(a){
   }
   const line = (lb, v, note='', cls='') => `<tr><td>${lb}${note?`<div class="cat">${note}</div>`:''}</td><td class="${cls}">${v}</td></tr>`;
   const okA = r.fA >= r.nominal, okB = r.fB >= r.nominal;
+  const hint = (id, est, src, startAge, pen) => { const el = document.getElementById(id); if (!el) return;
+    el.textContent = src === '概算' ? `（自動計算：65歳から${man(est.total)}／${startAge}歳開始なら${man(pen)}）` : '（入力した額を使用中）'; };
+  hint('hEstHint', r.hEst, r.hSrc, r.p.exitHusbandPensionAge, r.hPen);
+  hint('wEstHint', r.wEst, r.wSrc, r.p.exitWifePensionAge, r.wPen);
   box.innerHTML = `
     <section class="card">
       <h2>老後に必要な資産（目標額）</h2>
