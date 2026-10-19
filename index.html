@@ -298,9 +298,10 @@ function renderGate(err){
 // ===== タブ =====
 const TABS = [
   ['home','ホーム','<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'],
-  ['portfolio','ポートフォリオ','<circle cx="12" cy="12" r="9"/><path d="M12 3v9l7 5"/>'],
+  ['portfolio','内訳','<circle cx="12" cy="12" r="9"/><path d="M12 3v9l7 5"/>'],
   ['trend','推移','<path d="M3 20h18M5 16l5-5 4 3 6-7"/>'],
   ['input','月次入力','<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'],
+  ['exit','出口戦略','<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'],
   ['settings','設定','<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
 ];
 function renderTabs(){
@@ -351,7 +352,7 @@ function donut(id, labels, values, colors){
 // ===== 描画 =====
 function render(){
   destroyCharts(); themeChart();
-  const v = {home:viewHome, portfolio:viewPortfolio, trend:viewTrend, input:viewInput, settings:viewSettings}[S.tab];
+  const v = {home:viewHome, portfolio:viewPortfolio, trend:viewTrend, input:viewInput, exit:viewExit, settings:viewSettings}[S.tab];
   v();
 }
 
@@ -704,6 +705,188 @@ function viewSettings(){
     catch(e){ prompt('このリンクをコピーしてください', url); }
   };
   $('#logout').onclick = () => { if (confirm('この端末からキーを削除しますか？（データは消えません）')){ clearKey(); S.data=null; renderGate(); } };
+}
+
+// ===== 出口戦略 =====
+// 金額はすべて「今の価値（実質）」で入力・計算し、名目額はインフレ率で換算して表示する
+const EXIT_DEFAULTS = {
+  exitHusbandBirthYear:0, exitWifeBirthYear:0, exitRetireAge:60, exitEndAge:95,
+  exitMonthlyLiving:null, exitAnnualExtra:0,
+  exitHusbandPension:0, exitHusbandPensionAge:65, exitWifePension:0, exitWifePensionAge:65,
+  exitPensionTaxRate:0.12, exitPensionSlide:0,
+  exitWithdrawalRate:0.04, exitWithdrawTaxRate:0.10, exitInflation:0.02, exitBuffer:0,
+};
+const EXIT_FIELDS = [
+  ['家族とリタイア', [
+    ['exitHusbandBirthYear','夫の生まれ年','int','西暦 例：1990'], ['exitWifeBirthYear','妻の生まれ年','int','西暦'],
+    ['exitRetireAge','リタイア時の夫の年齢','int','この年から2人とも給与収入なしの想定'], ['exitEndAge','何歳まで計算するか（夫）','int']]],
+  ['老後の年間支出（今の価値）', [
+    ['exitMonthlyLiving','毎月の生活費','yen','初期値は設定の「世帯 月次支出」'], ['exitAnnualExtra','年間の特別支出','yen','旅行・車・家電・帰省など']]],
+  ['年金（ねんきん定期便の見込額）', [
+    ['exitHusbandPension','夫の年金（年額・額面）','yen'], ['exitHusbandPensionAge','夫の受給開始年齢','int','繰上げ60〜繰下げ75'],
+    ['exitWifePension','妻の年金（年額・額面）','yen'], ['exitWifePensionAge','妻の受給開始年齢','int'],
+    ['exitPensionTaxRate','年金から引かれる税・社会保険料','pct','概算10〜15%'],
+    ['exitPensionSlide','年金の目減り（年あたり）','pct','物価に追いつかない分。0なら物価並みに増える想定']]],
+  ['取り崩し・税・インフレ', [
+    ['exitWithdrawalRate','取り崩し率（年）','pct','初期値4%'],
+    ['exitWithdrawTaxRate','取り崩し時の税率（実効）','pct','NISAは0%。課税口座は利益に20.315%'],
+    ['exitInflation','インフレ率（年）','pct']]],
+  ['追加の余裕資金', [
+    ['exitBuffer','余裕資金（一括で確保）','yen','介護・住宅修繕・緊急資金など']]],
+];
+function exitParams(a){
+  const p = {};
+  for (const k in EXIT_DEFAULTS){
+    const v = a[k];
+    p[k] = (v === undefined || v === null || v === '') ? EXIT_DEFAULTS[k] : num(v);
+  }
+  if (p.exitMonthlyLiving === null) p.exitMonthlyLiving = num(a.monthlyExpense);
+  return p;
+}
+function calcExit(a){
+  const p = exitParams(a), now = new Date(), thisYear = now.getFullYear();
+  const hb = p.exitHusbandBirthYear, wb = p.exitWifeBirthYear || hb;
+  if (!hb) return {missing:true, p};
+  const retireYear = hb + p.exitRetireAge;
+  const yrs = Math.max(0, retireYear - thisYear);
+  const E = p.exitMonthlyLiving * 12 + p.exitAnnualExtra;
+  const pensionNet = y => {
+    let s = 0;
+    if (y - hb >= p.exitHusbandPensionAge) s += p.exitHusbandPension;
+    if (y - wb >= p.exitWifePensionAge) s += p.exitWifePension;
+    return s * (1 - p.exitPensionTaxRate) * Math.pow(1 - p.exitPensionSlide, Math.max(0, y - thisYear));
+  };
+  const fullYear = Math.max(retireYear, hb + p.exitHusbandPensionAge, wb + p.exitWifePensionAge);
+  const Pfull = pensionNet(fullYear);
+  const G = Math.max(0, E - Pfull);                       // 年金がそろった後の毎年の不足
+  const gross = 1 / (1 - Math.min(0.9, p.exitWithdrawTaxRate));
+  const core = p.exitWithdrawalRate > 0 ? G / p.exitWithdrawalRate * gross : 0;
+  let bridge = 0; const rows = [];
+  for (let y = retireYear; y <= hb + p.exitEndAge; y++){
+    const P = pensionNet(y), need = Math.max(0, E - P);
+    if (y < fullYear) bridge += Math.max(0, need - G) * gross;   // 空白期間に上乗せで必要な分
+    rows.push({year:y, hAge:y-hb, wAge:y-wb, pension:Math.min(P, E), withdraw:need, bridge:y < fullYear});
+  }
+  const real = core + bridge + p.exitBuffer;
+  const inf = Math.pow(1 + p.exitInflation, yrs);
+  // 今の積立ペースでの予測（リタイア時点）
+  const snaps = S.data.snapshots, last = snaps[snaps.length-1];
+  const startM = (startId(a).slice(5) || '07');
+  const retireId = `${retireYear}-${startM}`;
+  let fA = totals().total, fB = fA;
+  if (last){
+    const m = monthsBetween(last.id, retireId), base = {id:last.id, cash:last.cash, invest:last.invest};
+    fA = fB = last.cash + last.invest;
+    if (m > 0){ fA = project(a, base, m, false).pop().total; fB = project(a, base, m, true).pop().total; }
+  }
+  // 不足を埋める追加積立（月額・名目、想定利回りで複利）
+  const short = Math.max(0, real*inf - fB), n = Math.max(1, monthsBetween(ym(now), retireId));
+  const r = Math.pow(1 + num(a.returnRate), 1/12) - 1;
+  const extraMonthly = short > 0 ? (r > 0 ? short * r / (Math.pow(1+r, n) - 1) : short / n) : 0;
+  return {p, E, Pfull, G, core, bridge, real, nominal:real*inf, inf, yrs, retireYear, fullYear,
+    bridgeYears:Math.max(0, fullYear - retireYear), rows, fA, fB, extraMonthly, hAge:thisYear-hb, wAge:thisYear-wb};
+}
+
+function viewExit(){
+  const a = S.data.assumptions;
+  const draft = {...a};
+  const p0 = exitParams(a);
+  const val = (k,t) => { const v = p0[k];
+    return t==='pct' ? +(v*100).toFixed(3) : t==='yen' ? Math.round(v).toLocaleString('ja-JP') : (v ? v : ''); };
+  $('#app').innerHTML = heroHTML() + `<main>
+    <div id="exitResult"></div>
+    <form id="exitForm">
+    ${EXIT_FIELDS.map(([h, rows]) => `<section class="card"><h2>${h}</h2>
+      ${rows.map(([k,lb,t,hint]) => `<label class="set-row"><span class="lb">${lb}${hint?`<small>${hint}</small>`:''}</span>
+        <span class="${t==='yen'?'yen':t==='pct'?'yen pct':''}"><input name="${k}" data-t="${t}" type="text"
+          inputmode="${t==='pct'?'decimal':'numeric'}" value="${esc(val(k,t))}"></span></label>`).join('')}
+    </section>`).join('')}
+    <button class="btn" type="submit">この前提を保存</button>
+    </form>
+  </main>`;
+  bindHero();
+  const form = $('#exitForm');
+  const readForm = () => form.querySelectorAll('input[name]').forEach(inp => {
+    const t = inp.dataset.t, raw = String(inp.value).trim();
+    draft[inp.name] = raw === '' ? '' : t==='pct' ? num(raw)/100 : num(raw);
+  });
+  form.querySelectorAll('input').forEach(inp => {
+    if (inp.dataset.t === 'yen'){
+      inp.addEventListener('focus', () => { inp.value = String(num(inp.value)); inp.select(); });
+      inp.addEventListener('blur', () => { inp.value = Math.round(num(inp.value)).toLocaleString('ja-JP'); });
+    }
+    inp.addEventListener('change', () => { readForm(); drawExit(draft); });
+  });
+  form.onsubmit = async e => {
+    e.preventDefault(); readForm();
+    busy(true, '保存中…');
+    try { await apiPost({action:'saveAssumptions', data:draft}); busy(false); await reload('出口戦略の前提を保存しました'); }
+    catch(err){ busy(false); toast('保存に失敗：' + err.message, true); }
+  };
+  drawExit(draft);
+}
+
+function drawExit(a){
+  const old = S.charts.filter(c => c.canvas && c.canvas.id === 'cExit');
+  S.charts = S.charts.filter(c => !old.includes(c));
+  old.forEach(c => c.destroy());
+  const r = calcExit(a), C = COL(), box = $('#exitResult');
+  if (r.missing){
+    box.innerHTML = `<section class="card"><h2>出口戦略</h2><p class="note">下の「夫の生まれ年」と年金の見込額を入れると、老後に必要な資産額を計算します。</p></section>`;
+    return;
+  }
+  const line = (lb, v, note='', cls='') => `<tr><td>${lb}${note?`<div class="cat">${note}</div>`:''}</td><td class="${cls}">${v}</td></tr>`;
+  const okA = r.fA >= r.nominal, okB = r.fB >= r.nominal;
+  box.innerHTML = `
+    <section class="card">
+      <h2>老後に必要な資産（目標額）</h2>
+      <p class="note">${r.retireYear}年（夫${r.p.exitRetireAge}歳・妻${r.retireYear - (r.p.exitWifeBirthYear||r.p.exitHusbandBirthYear)}歳）にリタイアする場合</p>
+      <div class="grid2" style="margin:0">
+        <div class="kpi" style="box-shadow:none;background:var(--chip)"><div class="k">今の価値で</div><div class="v num">${man(r.real)}</div></div>
+        <div class="kpi" style="box-shadow:none;background:var(--chip)"><div class="k">${r.retireYear}年の金額で</div><div class="v num">${man(r.nominal)}</div><div class="d">インフレ${pct(r.p.exitInflation)}×${r.yrs}年</div></div>
+      </div>
+      <table class="num" style="margin-top:10px"><tbody>
+        ${line('① 年間支出', yen(r.E), `月${man(r.p.exitMonthlyLiving)}×12＋特別支出${man(r.p.exitAnnualExtra)}`)}
+        ${line('② 年金の手取り（2人分・年）', yen(r.Pfull), `${r.fullYear}年に2人とも受給開始`)}
+        ${line('③ 毎年の不足額', yen(r.G), '①−②')}
+        ${line('④ 取り崩し用の資産', yen(r.core), `③÷取り崩し率${pct(r.p.exitWithdrawalRate)}、税${pct(r.p.exitWithdrawTaxRate,0)}を上乗せ`)}
+        ${line('⑤ 年金が出るまでの空白期間', yen(r.bridge), r.bridgeYears ? `${r.retireYear}〜${r.fullYear-1}年の${r.bridgeYears}年分` : '空白期間なし')}
+        ${line('⑥ 追加の余裕資金', yen(r.p.exitBuffer))}
+      </tbody><tfoot><tr><td>目標額（④＋⑤＋⑥）</td><td>${yen(r.real)}</td></tr></tfoot></table>
+    </section>
+    <section class="card">
+      <h2>今のペースで届くか</h2>
+      <p class="note">「設定」の積立・利回りの前提で、${r.retireYear}年時点を予測（${r.retireYear}年の金額）</p>
+      <table class="num"><tbody>
+        ${line('目標額', man(r.nominal))}
+        ${line('予測（順調）', man(r.fA), '', okA?'plus':'minus')}
+        ${line('予測（波を考慮）', man(r.fB), '', okB?'plus':'minus')}
+        ${line('不足を埋める追加積立', r.extraMonthly > 0 ? '月 ' + yen(r.extraMonthly) : '不要', r.extraMonthly > 0 ? '波を考慮した予測が基準' : '', r.extraMonthly > 0 ? 'minus' : 'plus')}
+      </tbody></table>
+      <button class="btn ghost" id="applyGoal" type="button">この目標額をホームの目標にする</button>
+    </section>
+    <section class="card">
+      <h2>リタイア後の毎年のお金（今の価値）</h2>
+      <p class="note">棒の高さ＝年間支出。年金で足りない分を資産から取り崩す</p>
+      ${legendHTML([[C.invest,'年金の手取り'],[C.cash,'資産から取り崩し']])}
+      <div class="chart" style="height:220px"><canvas id="cExit" aria-label="リタイア後の年金と取り崩し"></canvas></div>
+    </section>`;
+  const rows = r.rows;
+  mkChart('cExit', {type:'bar', data:{labels:rows.map(x => `${x.hAge}歳`), datasets:[
+      {label:'年金の手取り', data:rows.map(x=>x.pension), backgroundColor:C.invest, borderColor:C.card, borderWidth:{top:1}, borderSkipped:false, maxBarThickness:18},
+      {label:'資産から取り崩し', data:rows.map(x=>x.withdraw), backgroundColor:C.cash, borderColor:C.card, borderWidth:{bottom:1}, borderSkipped:false, maxBarThickness:18}]},
+    options:{interaction:{mode:'index', intersect:false},
+      plugins:{tooltip:{callbacks:{title:items => { const x = rows[items[0].dataIndex]; return `${x.year}年 夫${x.hAge}歳・妻${x.wAge}歳${x.bridge?'（空白期間）':''}`; },
+        label:ctx => ` ${ctx.dataset.label}：${man(ctx.parsed.y)}`}}},
+      scales:{x:{stacked:true, grid:{display:false}, ticks:{maxTicksLimit:8, maxRotation:0}}, y:{stacked:true, ticks:{callback:manTick, maxTicksLimit:5}}}}});
+  $('#applyGoal').onclick = async () => {
+    const sid = startId(a), years = Math.max(1, Number(r.retireYear) - Number(sid.slice(0,4)));
+    const goal = Math.ceil(r.nominal / 100000) * 100000;
+    if (!confirm(`ホームの目標を「${man(goal)}（${sid.slice(0,4)}年から${years}年後）」に変えますか？`)) return;
+    busy(true, '保存中…');
+    try { await apiPost({action:'saveAssumptions', data:{...a, goal, goalYears:years}}); busy(false); await reload('目標金額を更新しました'); }
+    catch(err){ busy(false); toast('保存に失敗：' + err.message, true); }
+  };
 }
 </script>
 </body>
