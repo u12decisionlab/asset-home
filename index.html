@@ -145,6 +145,7 @@ details.tbl summary{font-size:12px;color:var(--navy2);cursor:pointer;margin-top:
 // ===== 設定 =====
 const API = 'https://script.google.com/macros/s/AKfycbzjxfSIXy5CjbfkSkjsjqaPKwG6ndCYKPTKPIGTAmyrTgHGlPYBSTFucoDluu6ZCJikuQ/exec';
 const KEY_STORE = 'assetHome.key';
+const APP_VERSION = '2026-10-19.5';
 const CATEGORY_ORDER = ['国内株式','投資信託(成長)','投資信託(つみたて)','米国株式等'];
 
 // ===== 小道具 =====
@@ -255,6 +256,19 @@ function project(a, from, months, withDips){
 function monthsBetween(a, b){ const [y1,m1]=a.split('-').map(Number), [y2,m2]=b.split('-').map(Number); return (y2-y1)*12 + (m2-m1); }
 
 // ===== 起動 =====
+// 新しい版が公開されていたら自動で読み直す（ブラウザが古い版を覚えているとき用）
+async function checkUpdate(){
+  try {
+    const res = await fetch(location.pathname + '?check=' + Date.now(), {cache:'no-store'});
+    const m = (await res.text()).match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] !== APP_VERSION && sessionStorage.getItem('assetHome.reloaded') !== m[1]){
+      sessionStorage.setItem('assetHome.reloaded', m[1]);
+      location.replace(location.pathname + '?v=' + encodeURIComponent(m[1]) + location.hash);
+    }
+  } catch(e){}
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 readKeyFromHash();
 window.addEventListener('hashchange', () => { if (/key=/.test(location.hash)){ readKeyFromHash(); boot(); } });
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => S.data && render());
@@ -677,6 +691,7 @@ function viewSettings(){
     <section class="card" style="margin-top:14px"><h2>共有・端末</h2>
       <p class="note">妻の端末で開くリンク（キー付き）をコピーします。LINEなどで本人にだけ送ってください。開くとキーが端末に保存され、URLからは消えます。</p>
       <button class="btn ghost" id="shareLink">共有リンクをコピー</button>
+      <p class="note" style="margin-top:8px">アプリの版：${APP_VERSION}</p>
       <button class="btn ghost" id="logout" style="margin-top:8px;color:var(--minus);border-color:var(--minus)">この端末からキーを削除</button>
     </section>
   </main>`;
