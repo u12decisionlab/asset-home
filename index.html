@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="資産管理">
+<meta name="theme-color" content="#1f3864">
+<title>夫婦の資産管理</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%231f3864'/%3E%3Cpath d='M14 46h36M20 40V30M30 40V22M40 40V26M50 40V16' stroke='%23e8c25a' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
+<style>
+:root{
+  --navy:#1f3864; --navy2:#2e5395; --gold:#d4a017; --gold2:#e8c25a;
+  --bg:#f3f4f7; --card:#ffffff; --ink:#1b2133; --ink2:#4d5568; --muted:#7c8496;
+  --line:#e3e6ec; --grid:#eceef2; --plus:#1e8e5a; --minus:#c8372d;
+  --c-invest:#2e5395; --c-cash:#d4a017; --c-3:#2a9d8f; --c-4:#9b6bc4;
+  --c-target:#7c8496; --chip:#e9edf5; --input:#f7f8fa;
+  --shadow:0 1px 3px rgba(20,30,60,.08),0 4px 14px rgba(20,30,60,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#111318; --card:#1b1e25; --ink:#eef0f5; --ink2:#b8bdca; --muted:#8a90a0;
+    --line:#2c303a; --grid:#262a33; --plus:#4cc38a; --minus:#ff7a6e;
+    --c-invest:#5b84d6; --c-cash:#a8841f; --c-3:#2ba496; --c-4:#a57fd4;
+    --c-target:#8a90a0; --chip:#262b36; --input:#14161b;
+    --shadow:0 1px 3px rgba(0,0,0,.4);
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;
+  -webkit-text-size-adjust:100%;font-size:15px;line-height:1.5}
+button,input,select{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+
+/* header */
+.hero{background:linear-gradient(135deg,var(--navy),var(--navy2));color:#fff;
+  padding:calc(env(safe-area-inset-top) + 14px) 18px 18px}
+.hero .ttl{font-size:13px;opacity:.85;display:flex;justify-content:space-between;align-items:center}
+.hero .big{font-size:32px;font-weight:700;letter-spacing:.5px;margin:2px 0 6px}
+.hero .sub{font-size:13px;opacity:.9}
+.hero .bar{height:8px;border-radius:4px;background:rgba(255,255,255,.2);margin-top:10px;overflow:hidden}
+.hero .bar i{display:block;height:100%;background:var(--gold2);border-radius:4px}
+.reload{background:rgba(255,255,255,.15);border:0;border-radius:999px;color:#fff;padding:4px 10px;font-size:12px}
+
+main{padding:14px 14px calc(env(safe-area-inset-bottom) + 86px);max-width:720px;margin:0 auto}
+.card{background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:16px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 4px}
+.card .note{font-size:12px;color:var(--muted);margin:0 0 10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border-radius:16px;box-shadow:var(--shadow);padding:12px 14px}
+.kpi .k{font-size:12px;color:var(--ink2);display:flex;align-items:center;gap:6px}
+.kpi .v{font-size:18px;font-weight:700;margin-top:2px}
+.kpi .d{font-size:12px;margin-top:2px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex:none}
+.plus{color:var(--plus)} .minus{color:var(--minus)}
+.chart{position:relative;width:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink2);margin:0 0 8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend .ln{width:16px;height:0;border-top:2px solid;display:inline-block}
+.legend .ln.dash{border-top-style:dashed}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 4px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+th{font-weight:600;color:var(--ink2);font-size:12px}
+th:first-child,td:first-child{text-align:left}
+td .cat{font-size:11px;color:var(--muted)}
+tfoot td{font-weight:700;border-bottom:0}
+
+/* input */
+.status{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;font-size:14px;margin-bottom:12px}
+.status.done{background:color-mix(in srgb,var(--plus) 14%,transparent);color:var(--plus)}
+.status.todo{background:color-mix(in srgb,var(--gold) 18%,transparent);color:var(--ink)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;padding:4px 10px;border-radius:999px;background:var(--chip);color:var(--muted)}
+.chip.on{background:var(--navy2);color:#fff}
+.chip.now{outline:2px solid var(--gold);outline-offset:1px}
+.group-h{font-size:12px;font-weight:700;color:var(--ink2);margin:14px 0 6px;display:flex;justify-content:space-between}
+.row{border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:8px}
+.row .nm{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:14px;font-weight:600;margin-bottom:6px}
+.row .nm small{font-weight:400;color:var(--muted)}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+label.f{display:block;font-size:11px;color:var(--muted)}
+.yen{position:relative}
+.yen > input{padding-right:30px !important}
+.yen::after{content:"円";position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:12px;color:var(--muted)}
+.pct::after{content:"%"}
+input[type=text],input[type=number],input[type=password],input[type=date],select{
+  width:100%;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--input);
+  font-size:16px;text-align:right;-webkit-appearance:none;appearance:none}
+input.left,select{text-align:left}
+input:focus,select:focus{outline:2px solid var(--navy2);outline-offset:-1px}
+.del{border:0;background:none;color:var(--minus);font-size:12px;padding:4px 6px}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font-size:16px;font-weight:700;
+  background:var(--navy2);color:#fff;margin-top:10px}
+.btn.gold{background:var(--gold);color:#1b1b1b}
+.btn.ghost{background:transparent;color:var(--navy2);border:1px dashed var(--navy2);font-weight:600;padding:10px}
+.btn:disabled{opacity:.5}
+.total-line{display:flex;justify-content:space-between;font-weight:700;padding:8px 2px 0;font-size:14px}
+.set-row{display:grid;grid-template-columns:1fr 150px;align-items:center;gap:10px;padding:6px 0}
+.set-row .lb{font-size:14px}
+.set-row .lb small{display:block;font-size:11px;color:var(--muted)}
+
+/* tabbar */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);
+  border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:10}
+nav.tabs button{flex:1;border:0;background:none;padding:8px 0 6px;font-size:10.5px;color:var(--muted);
+  display:flex;flex-direction:column;align-items:center;gap:2px}
+nav.tabs button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+nav.tabs button.on{color:var(--navy2)}
+@media (prefers-color-scheme: dark){nav.tabs button.on{color:var(--gold2)}}
+
+/* overlay */
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 80px);transform:translateX(-50%) translateY(20px);
+  background:var(--ink);color:var(--card);padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;
+  transition:.25s;pointer-events:none;z-index:30;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.err{background:var(--minus);color:#fff}
+.busy{position:fixed;inset:0;background:rgba(0,0,0,.25);display:none;align-items:center;justify-content:center;z-index:40}
+.busy.show{display:flex}
+.busy div{background:var(--card);padding:16px 22px;border-radius:14px;display:flex;gap:10px;align-items:center;box-shadow:var(--shadow)}
+.spin{width:18px;height:18px;border:3px solid var(--line);border-top-color:var(--navy2);border-radius:50%;animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.gate{max-width:420px;margin:12vh auto 0;padding:0 18px}
+.gate p{color:var(--ink2);font-size:14px}
+.gate input{text-align:left}
+.empty{color:var(--muted);font-size:13px;padding:20px 0;text-align:center}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+details.tbl summary{font-size:12px;color:var(--navy2);cursor:pointer;margin-top:8px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav class="tabs" id="tabs" hidden></nav>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="busy" id="busy"><div><span class="spin"></span><span id="busyText">読み込み中…</span></div></div>
+
+<script>
+'use strict';
+// ===== 設定 =====
+const API = 'https://script.google.com/macros/s/AKfycbzjxfSIXy5CjbfkSkjsjqaPKwG6ndCYKPTKPIGTAmyrTgHGlPYBSTFucoDluu6ZCJikuQ/exec';
+const KEY_STORE = 'assetHome.key';
+const CATEGORY_ORDER = ['国内株式','投資信託(成長)','投資信託(つみたて)','米国株式等'];
+
+// ===== 小道具 =====
+const $ = s => document.querySelector(s);
+const yen = n => Math.round(Number(n) || 0).toLocaleString('ja-JP') + '円';
+const man = n => { const v = (Number(n)||0)/10000; return (Math.abs(v)>=100 ? Math.round(v).toLocaleString('ja-JP') : v.toFixed(1)) + '万円'; };
+const pct = (n, d=1) => ((Number(n)||0)*100).toFixed(d) + '%';
+const signed = (n, f=yen) => (n>0?'+':n<0?'−':'±') + f(Math.abs(n));
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = v => { const n = Number(String(v).replace(/[,，円\s]/g,'')); return Number.isFinite(n) ? n : 0; };
+const ym = d => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0');
+const ymLabel = id => { const [y,m] = id.split('-'); return `${y}年${Number(m)}月`; };
+const addMonths = (id, k) => { const [y,m] = id.split('-').map(Number); return ym(new Date(y, m-1+k, 1)); };
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const sum = (a, f) => a.reduce((s,x) => s + (Number(f(x))||0), 0);
+
+let toastTimer;
+function toast(msg, err=false){
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast show' + (err?' err':'');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = 'toast', err?4500:2500);
+}
+function busy(on, text='読み込み中…'){ $('#busyText').textContent = text; $('#busy').classList.toggle('show', on); }
+
+// ===== キー =====
+function readKeyFromHash(){
+  const m = location.hash.match(/key=([^&]+)/);
+  if (m){
+    try { localStorage.setItem(KEY_STORE, decodeURIComponent(m[1])); } catch(e){}
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+}
+function getKey(){ try { return localStorage.getItem(KEY_STORE) || ''; } catch(e){ return ''; } }
+function setKey(k){ try { localStorage.setItem(KEY_STORE, k); } catch(e){} }
+function clearKey(){ try { localStorage.removeItem(KEY_STORE); } catch(e){} }
+
+// ===== API =====
+async function apiGet(key){
+  const res = await fetch(`${API}?key=${encodeURIComponent(key)}&t=${Date.now()}`, {redirect:'follow'});
+  if (!res.ok) throw new Error('通信エラー (' + res.status + ')');
+  const j = await res.json();
+  if (j.error) throw new Error(j.error);
+  return j;
+}
+async function apiPost(body){
+  const res = await fetch(API, {method:'POST', redirect:'follow',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({...body, key:getKey()})});
+  if (!res.ok) throw new Error('通信エラー (' + res.status + ')');
+  const j = await res.json();
+  if (j.error) throw new Error(j.error);
+  if (!j.ok) throw new Error('保存に失敗しました');
+  return j;
+}
+
+// ===== 状態 =====
+const S = { data:null, tab:'home', draft:null, dirty:false, charts:[] };
+
+function normalize(d){
+  d.cash = (d.cash||[]).map(c => ({...c, value:num(c.value)}));
+  d.holdings = (d.holdings||[]).map(h => ({...h, value:num(h.value), cost:num(h.cost)}));
+  d.snapshots = (d.snapshots||[]).map(s => ({...s, id:String(s.id).slice(0,7), cash:num(s.cash), invest:num(s.invest)}))
+    .sort((a,b) => a.id < b.id ? -1 : 1);
+  d.assumptions = d.assumptions || {};
+  return d;
+}
+function bonusMonths(a){
+  const v = a.bonusMonths;
+  return (Array.isArray(v) ? v : String(v ?? '').split(/[,、\s]+/)).map(Number).filter(n => n>=1 && n<=12);
+}
+function totals(d=S.data){
+  const cash = sum(d.cash, c => c.value), invest = sum(d.holdings, h => h.value);
+  return {cash, invest, total:cash+invest};
+}
+function startId(a){ return String(a.startDate || '').slice(0,7) || (S.data.snapshots[0]?.id) || ym(new Date()); }
+
+// ===== 予測計算 =====
+function project(a, from, months, withDips){
+  const mi = Math.pow(1 + num(a.returnRate), 1/12) - 1;
+  const mc = Math.pow(1 + num(a.cashRate), 1/12) - 1;
+  const fixed = num(a.fixedSP500) + num(a.fixedNASDAQ);
+  const cap = num(a.cashCap), bm = bonusMonths(a);
+  const dipEvery = Math.round(num(a.dipEveryYears) * 12), dip = num(a.dipAmount);
+  const sid = startId(a);
+  let cash = from.cash, inv = from.invest;
+  const out = [];
+  for (let k = 1; k <= months; k++){
+    const id = addMonths(from.id, k), m = Number(id.slice(5));
+    cash *= 1 + mc; inv *= 1 + mi;
+    let surplus = num(a.husbandIncome) + num(a.wifeIncome) - num(a.monthlyExpense);
+    if (bm.includes(m)) surplus += num(a.bonus);
+    inv += fixed;                               // 固定積立は最優先
+    const rest = surplus - fixed;
+    if (rest >= 0){
+      const toCash = cash < cap ? Math.min(rest, cap - cash) : 0;
+      cash += toCash; inv += rest - toCash;
+    } else {
+      cash += rest;                             // 足りない分は現金から
+    }
+    if (withDips && dipEvery > 0 && dip > 0){
+      const since = monthsBetween(sid, id);
+      if (since > 0 && since % dipEvery === 0) cash -= dip;
+    }
+    if (cash < 0){ inv += cash; cash = 0; }     // 現金が足りなければ投資から
+    out.push({id, cash, invest:inv, total:cash+inv});
+  }
+  return out;
+}
+function monthsBetween(a, b){ const [y1,m1]=a.split('-').map(Number), [y2,m2]=b.split('-').map(Number); return (y2-y1)*12 + (m2-m1); }
+
+// ===== 起動 =====
+readKeyFromHash();
+window.addEventListener('hashchange', () => { if (/key=/.test(location.hash)){ readKeyFromHash(); boot(); } });
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => S.data && render());
+window.addEventListener('beforeunload', e => { if (S.dirty){ e.preventDefault(); e.returnValue=''; } });
+boot();
+
+async function boot(){
+  const key = getKey();
+  if (!key) return renderGate();
+  busy(true);
+  try {
+    S.data = normalize(await apiGet(key));
+    S.draft = null; S.dirty = false;
+    renderTabs(); render();
+  } catch(e){
+    renderGate(e.message);
+  } finally { busy(false); }
+}
+async function reload(msg){
+  busy(true);
+  try { S.data = normalize(await apiGet(getKey())); S.draft = null; S.dirty = false; render(); if (msg) toast(msg); }
+  catch(e){ toast('再読み込み失敗：' + e.message, true); }
+  finally { busy(false); }
+}
+
+function renderGate(err){
+  $('#tabs').hidden = true;
+  destroyCharts();
+  $('#app').innerHTML = `
+  <div class="gate">
+    <h1 style="font-size:22px;margin:0 0 6px">夫婦の資産管理</h1>
+    <p>共有されたアクセスキーを入力してください。この端末に保存され、次回からは入力不要です。</p>
+    <form id="gateForm">
+      <input id="gateKey" type="password" class="left" autocomplete="current-password" placeholder="アクセスキー" required>
+      <button class="btn" type="submit">開く</button>
+    </form>
+    ${err ? `<p class="minus" style="margin-top:12px">読み込めませんでした：${esc(err)}</p>` : ''}
+  </div>`;
+  $('#gateForm').onsubmit = e => { e.preventDefault(); setKey($('#gateKey').value.trim()); boot(); };
+}
+
+// ===== タブ =====
+const TABS = [
+  ['home','ホーム','<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'],
+  ['portfolio','ポートフォリオ','<circle cx="12" cy="12" r="9"/><path d="M12 3v9l7 5"/>'],
+  ['trend','推移','<path d="M3 20h18M5 16l5-5 4 3 6-7"/>'],
+  ['input','月次入力','<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'],
+  ['settings','設定','<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'],
+];
+function renderTabs(){
+  const nav = $('#tabs'); nav.hidden = false;
+  nav.innerHTML = TABS.map(([id,lb,ic]) =>
+    `<button data-tab="${id}" class="${S.tab===id?'on':''}" aria-label="${lb}"><svg viewBox="0 0 24 24">${ic}</svg>${lb}</button>`).join('');
+  nav.onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    S.tab = b.dataset.tab;
+    nav.querySelectorAll('button').forEach(x => x.classList.toggle('on', x===b));
+    render(); window.scrollTo(0,0);
+  };
+}
+
+// ===== グラフ共通 =====
+function destroyCharts(){ S.charts.forEach(c => c.destroy()); S.charts = []; }
+function themeChart(){
+  if (!window.Chart) return;
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+  Chart.defaults.font.size = 11;
+  Chart.defaults.color = cssVar('--ink2');
+  Chart.defaults.borderColor = cssVar('--grid');
+  Chart.defaults.plugins.legend.display = false;
+  Chart.defaults.plugins.tooltip.backgroundColor = cssVar('--ink');
+  Chart.defaults.plugins.tooltip.titleColor = cssVar('--card');
+  Chart.defaults.plugins.tooltip.bodyColor = cssVar('--card');
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.plugins.tooltip.boxPadding = 4;
+  Chart.defaults.maintainAspectRatio = false;
+}
+function mkChart(id, cfg){
+  const el = document.getElementById(id);
+  if (!el || !window.Chart) { if (el) el.parentElement.innerHTML = '<div class="empty">グラフを読み込めませんでした（通信を確認してください）</div>'; return; }
+  S.charts.push(new Chart(el, cfg));
+}
+const yenTip = ctx => ` ${ctx.dataset.label || ctx.label}：${yen(ctx.parsed.y ?? ctx.parsed.x ?? ctx.parsed)}`;
+const manTick = v => man(v);
+const COL = () => ({invest:cssVar('--c-invest'), cash:cssVar('--c-cash'), c3:cssVar('--c-3'), c4:cssVar('--c-4'),
+  target:cssVar('--c-target'), card:cssVar('--card'), plus:cssVar('--plus'), minus:cssVar('--minus'), muted:cssVar('--muted')});
+const legendHTML = items => `<div class="legend">${items.map(([c,l,t]) =>
+  t ? `<span><i class="ln ${t}" style="border-color:${c}"></i>${esc(l)}</span>` : `<span><i class="dot" style="background:${c}"></i>${esc(l)}</span>`).join('')}</div>`;
+function donut(id, labels, values, colors){
+  mkChart(id, {type:'doughnut', data:{labels, datasets:[{data:values, backgroundColor:colors, borderColor:COL().card, borderWidth:2}]},
+    options:{cutout:'62%', plugins:{tooltip:{callbacks:{label:ctx => {
+      const t = ctx.dataset.data.reduce((a,b)=>a+b,0); return ` ${ctx.label}：${yen(ctx.parsed)}（${pct(ctx.parsed/t)}）`; }}}}}});
+}
+
+// ===== 描画 =====
+function render(){
+  destroyCharts(); themeChart();
+  const v = {home:viewHome, portfolio:viewPortfolio, trend:viewTrend, input:viewInput, settings:viewSettings}[S.tab];
+  v();
+}
+
+function heroHTML(){
+  const t = totals(), a = S.data.assumptions, goal = num(a.goal);
+  const rate = goal ? t.total/goal : 0;
+  return `<header class="hero">
+    <div class="ttl"><span>総資産</span><button class="reload" id="reloadBtn">↻ 更新</button></div>
+    <div class="big num">${yen(t.total)}</div>
+    <div class="sub num">目標 ${man(goal)} に対して <b>${pct(rate)}</b> 達成</div>
+    <div class="bar" role="progressbar" aria-valuenow="${(rate*100).toFixed(1)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${Math.min(100,rate*100)}%"></i></div>
+  </header>`;
+}
+function bindHero(){ const b = $('#reloadBtn'); if (b) b.onclick = () => reload('最新の状態に更新しました'); }
+
+function prevSnapshot(){
+  const snaps = S.data.snapshots, cur = ym(new Date());
+  const past = snaps.filter(s => s.id < cur);
+  return past[past.length-1] || null;
+}
+
+function viewHome(){
+  const t = totals(), a = S.data.assumptions, goal = num(a.goal), C = COL();
+  const p = prevSnapshot();
+  const d = (now, before) => p ? `<div class="d num ${now-before>=0?'plus':'minus'}">${ymLabel(p.id)}比 ${signed(now-before)}</div>` : '<div class="d">前月の記録なし</div>';
+  const snaps = S.data.snapshots.slice(-8);
+  $('#app').innerHTML = heroHTML() + `<main>
+    <div class="grid2">
+      <div class="kpi"><div class="k">総資産</div><div class="v num">${man(t.total)}</div>${d(t.total, p ? p.cash+p.invest : 0)}</div>
+      <div class="kpi"><div class="k">目標金額</div><div class="v num">${man(goal)}</div><div class="d num">あと ${man(Math.max(0,goal-t.total))}</div></div>
+      <div class="kpi"><div class="k"><i class="dot" style="background:${C.cash}"></i>現金 ${pct(t.cash/(t.total||1))}</div><div class="v num">${man(t.cash)}</div>${d(t.cash, p?.cash||0)}</div>
+      <div class="kpi"><div class="k"><i class="dot" style="background:${C.invest}"></i>投資 ${pct(t.invest/(t.total||1))}</div><div class="v num">${man(t.invest)}</div>${d(t.invest, p?.invest||0)}</div>
+    </div>
+    <section class="card"><h2>現金と投資の割合</h2>
+      ${legendHTML([[C.cash,`現金 ${pct(t.cash/(t.total||1))}`],[C.invest,`投資 ${pct(t.invest/(t.total||1))}`]])}
+      <div class="chart" style="height:200px"><canvas id="cHomeDonut" aria-label="現金と投資の割合"></canvas></div>
+    </section>
+    <section class="card"><h2>総資産の推移</h2><p class="note">記録がある月だけ表示（直近${snaps.length}か月）</p>
+      ${snaps.length ? '<div class="chart" style="height:200px"><canvas id="cHomeLine" aria-label="総資産の推移"></canvas></div>' : '<div class="empty">まだ記録がありません</div>'}
+    </section>
+  </main>`;
+  bindHero();
+  donut('cHomeDonut', ['現金','投資'], [t.cash, t.invest], [C.cash, C.invest]);
+  if (snaps.length) mkChart('cHomeLine', {type:'line',
+    data:{labels:snaps.map(s => ymLabel(s.id).replace(/^\d+年/, m => m)), datasets:[{label:'総資産', data:snaps.map(s => s.cash+s.invest),
+      borderColor:C.invest, backgroundColor:C.invest, borderWidth:2, pointRadius:4, pointHoverRadius:6, pointBorderColor:C.card, pointBorderWidth:2, tension:.25}]},
+    options:{interaction:{mode:'index', intersect:false}, plugins:{tooltip:{callbacks:{label:yenTip}}},
+      scales:{x:{grid:{display:false}}, y:{ticks:{callback:manTick, maxTicksLimit:5}}}}});
+}
+
+function viewPortfolio(){
+  const t = totals(), C = COL(), H = S.data.holdings;
+  const cats = [...new Set([...CATEGORY_ORDER.filter(c => H.some(h => h.category===c)), ...H.map(h => h.category)])];
+  const catColors = [C.invest, C.c3, C.c4, C.cash, C.muted];
+  const catVal = cats.map(c => sum(H.filter(h => h.category===c), h => h.value));
+  const sorted = [...H].sort((a,b) => b.value - a.value);
+  const pl = sum(H, h => h.value - h.cost), costT = sum(H, h => h.cost);
+  $('#app').innerHTML = heroHTML() + `<main>
+    <section class="card"><h2>カテゴリ別の構成</h2><p class="note">投資 ${man(t.invest)} の内訳</p>
+      ${legendHTML(cats.map((c,i) => [catColors[Math.min(i,4)], `${c} ${pct(catVal[i]/(t.invest||1))}`]))}
+      <div class="chart" style="height:210px"><canvas id="cCat" aria-label="カテゴリ別の構成"></canvas></div>
+    </section>
+    <section class="card"><h2>アセットアロケーション</h2>
+      ${legendHTML([[C.cash,`現金 ${man(t.cash)}`],[C.invest,`投資 ${man(t.invest)}`]])}
+      <div class="chart" style="height:180px"><canvas id="cAlloc" aria-label="現金と投資"></canvas></div>
+    </section>
+    <section class="card"><h2>銘柄ごとの評価額と取得金額</h2><p class="note">評価額の大きい順</p>
+      ${legendHTML([[C.invest,'評価額'],[C.muted,'取得金額']])}
+      <div class="chart" style="height:${Math.max(220, sorted.length*34 + 40)}px"><canvas id="cBars" aria-label="銘柄別の評価額と取得金額"></canvas></div>
+    </section>
+    <section class="card"><h2>保有銘柄一覧（${H.length}件）</h2>
+      <table class="num"><thead><tr><th>銘柄</th><th>評価額</th><th>損益</th></tr></thead><tbody>
+      ${sorted.map(h => { const g = h.value-h.cost, r = h.cost ? g/h.cost : 0; return `<tr>
+        <td>${esc(h.name)}<div class="cat">${esc(h.category)}</div></td><td>${yen(h.value)}</td>
+        <td class="${g>=0?'plus':'minus'}">${signed(g)}<div style="font-size:11px">${r>=0?'+':''}${(r*100).toFixed(1)}%</div></td></tr>`; }).join('')}
+      </tbody><tfoot><tr><td>合計</td><td>${yen(t.invest)}</td><td class="${pl>=0?'plus':'minus'}">${signed(pl)}<div style="font-size:11px">${costT? ((pl/costT)>=0?'+':'') + (pl/costT*100).toFixed(1)+'%':''}</div></td></tr></tfoot></table>
+    </section>
+  </main>`;
+  bindHero();
+  donut('cCat', cats, catVal, cats.map((_,i) => catColors[Math.min(i,4)]));
+  donut('cAlloc', ['現金','投資'], [t.cash, t.invest], [C.cash, C.invest]);
+  mkChart('cBars', {type:'bar', data:{labels:sorted.map(h => h.name.replace(/\(.*?\)$/,'').slice(0,14)),
+    datasets:[{label:'評価額', data:sorted.map(h=>h.value), backgroundColor:C.invest, borderRadius:4, barPercentage:.85, categoryPercentage:.7},
+              {label:'取得金額', data:sorted.map(h=>h.cost), backgroundColor:C.muted, borderRadius:4, barPercentage:.85, categoryPercentage:.7}]},
+    options:{indexAxis:'y', interaction:{mode:'index', intersect:false},
+      plugins:{tooltip:{callbacks:{title:items => sorted[items[0].dataIndex].name, label:ctx => ` ${ctx.dataset.label}：${yen(ctx.parsed.x)}`}}},
+      scales:{x:{ticks:{callback:manTick, maxTicksLimit:4}}, y:{grid:{display:false}, ticks:{autoSkip:false, font:{size:10.5}}}}}});
+}
+
+function viewTrend(){
+  const C = COL(), a = S.data.assumptions, snaps = S.data.snapshots;
+  // 年次：各年の最後の記録
+  const byYear = {}; snaps.forEach(s => byYear[s.id.slice(0,4)] = s);
+  const years = Object.keys(byYear).sort();
+  // 予測
+  const sid = startId(a), goalYears = num(a.goalYears) || 20, endId = addMonths(sid, goalYears*12);
+  const labels = []; for (let id = sid; id <= endId; id = addMonths(id,1)) labels.push(id);
+  const snapMap = Object.fromEntries(snaps.map(s => [s.id, s.cash+s.invest]));
+  const startSnap = snaps.find(s => s.id === sid) || snaps[0];
+  const startVal = startSnap ? startSnap.cash + startSnap.invest : totals().total;
+  const N = labels.length - 1, goal = num(a.goal);
+  const target = labels.map((_,i) => startVal + (goal - startVal) * i / N);
+  const last = snaps[snaps.length-1];
+  let p1 = [], p2 = [], endA = null, endB = null;
+  if (last && last.id <= endId){
+    const remain = monthsBetween(last.id, endId);
+    const base = {id:last.id, cash:last.cash, invest:last.invest};
+    const A = Object.fromEntries(project(a, base, remain, false).map(r => [r.id, r.total]));
+    const B = Object.fromEntries(project(a, base, remain, true).map(r => [r.id, r.total]));
+    A[last.id] = B[last.id] = last.cash + last.invest;
+    p1 = labels.map(id => A[id] ?? null); p2 = labels.map(id => B[id] ?? null);
+    endA = A[endId]; endB = B[endId];
+  }
+  $('#app').innerHTML = heroHTML() + `<main>
+    <section class="card"><h2>将来予測と目標ライン</h2>
+      <p class="note">${ymLabel(sid)}〜${ymLabel(endId)}。予測は最新の記録（${last ? ymLabel(last.id) : 'なし'}）から計算</p>
+      ${legendHTML([[C.invest,'実績'],[C.target,'目標ライン','dash'],[C.c3,'予測（順調）'],[C.cash,'予測（波を考慮）']])}
+      <div class="chart" style="height:260px"><canvas id="cProj" aria-label="将来予測と目標ライン"></canvas></div>
+      <table class="num" style="margin-top:10px"><tbody>
+        <tr><td>目標（${ymLabel(endId)}）</td><td>${man(goal)}</td></tr>
+        <tr><td>予測（順調）</td><td class="${endA>=goal?'plus':'minus'}">${endA!=null?man(endA):'—'}</td></tr>
+        <tr><td>予測（波を考慮）</td><td class="${endB>=goal?'plus':'minus'}">${endB!=null?man(endB):'—'}</td></tr>
+      </tbody></table>
+    </section>
+    <section class="card"><h2>月次の資産推移（実績）</h2>
+      ${legendHTML([[C.cash,'現金'],[C.invest,'投資']])}
+      ${snaps.length ? '<div class="chart" style="height:220px"><canvas id="cMonthly" aria-label="月次の資産推移"></canvas></div>' : '<div class="empty">まだ記録がありません</div>'}
+      <details class="tbl"><summary>表で見る</summary><table class="num"><thead><tr><th>月</th><th>現金</th><th>投資</th><th>合計</th></tr></thead><tbody>
+      ${snaps.slice().reverse().map(s => `<tr><td>${ymLabel(s.id)}</td><td>${man(s.cash)}</td><td>${man(s.invest)}</td><td>${man(s.cash+s.invest)}</td></tr>`).join('')}
+      </tbody></table></details>
+    </section>
+    <section class="card"><h2>年次の資産推移（実績）</h2><p class="note">各年の最後に記録した月の値</p>
+      ${legendHTML([[C.cash,'現金'],[C.invest,'投資']])}
+      ${years.length ? '<div class="chart" style="height:200px"><canvas id="cYearly" aria-label="年次の資産推移"></canvas></div>' : '<div class="empty">まだ記録がありません</div>'}
+    </section>
+  </main>`;
+  bindHero();
+  mkChart('cProj', {type:'line', data:{labels:labels.map(ymLabel), datasets:[
+      {label:'実績', data:labels.map(id => snapMap[id] ?? null), borderColor:C.invest, backgroundColor:C.invest, borderWidth:2, pointRadius:3, spanGaps:false},
+      {label:'目標ライン', data:target, borderColor:C.target, borderDash:[6,4], borderWidth:2, pointRadius:0},
+      {label:'予測（順調）', data:p1, borderColor:C.c3, borderWidth:2, pointRadius:0},
+      {label:'予測（波を考慮）', data:p2, borderColor:C.cash, borderWidth:2, pointRadius:0}]},
+    options:{interaction:{mode:'index', intersect:false},
+      plugins:{tooltip:{filter:i => i.parsed.y != null, callbacks:{label:ctx => ` ${ctx.dataset.label}：${man(ctx.parsed.y)}`}}},
+      scales:{x:{grid:{display:false}, ticks:{maxTicksLimit:6, maxRotation:0, callback:function(v){ return this.getLabelForValue(v).replace(/\d+月$/,''); }}},
+              y:{beginAtZero:true, ticks:{callback:manTick, maxTicksLimit:6}}}}});
+  const stacked = (id, lbls, rows) => mkChart(id, {type:'bar', data:{labels:lbls, datasets:[
+      {label:'現金', maxBarThickness:44, data:rows.map(r=>r.cash), backgroundColor:C.cash, borderColor:C.card, borderWidth:{top:2}, borderSkipped:false, borderRadius:0},
+      {label:'投資', maxBarThickness:44, data:rows.map(r=>r.invest), backgroundColor:C.invest, borderColor:C.card, borderWidth:{bottom:2}, borderSkipped:false, borderRadius:{topLeft:4, topRight:4}}]},
+    options:{interaction:{mode:'index', intersect:false},
+      plugins:{tooltip:{callbacks:{label:ctx => ` ${ctx.dataset.label}：${yen(ctx.parsed.y)}`,
+        footer:items => '合計：' + yen(items.reduce((s,i)=>s+i.parsed.y,0))}}},
+      scales:{x:{stacked:true, grid:{display:false}}, y:{stacked:true, ticks:{callback:manTick, maxTicksLimit:5}}}}});
+  if (snaps.length) stacked('cMonthly', snaps.map(s => ymLabel(s.id).replace(/^(\d+)年/, (m,y) => y.slice(2)+'/').replace('月','')), snaps);
+  if (years.length) stacked('cYearly', years.map(y => y+'年'), years.map(y => byYear[y]));
+}
+
+// ===== 月次入力 =====
+function ensureDraft(){
+  if (!S.draft) S.draft = {cash:S.data.cash.map(c => ({...c})), holdings:S.data.holdings.map(h => ({...h}))};
+  return S.draft;
+}
+function viewInput(){
+  const D = ensureDraft(), cur = ym(new Date()), done = new Set(S.data.snapshots.map(s => s.id));
+  const year = cur.slice(0,4);
+  const months = Array.from({length:12}, (_,i) => `${year}-${String(i+1).padStart(2,'0')}`);
+  const cats = [...new Set([...CATEGORY_ORDER, ...D.holdings.map(h => h.category)])];
+  const cashT = sum(D.cash, c => c.value), invT = sum(D.holdings, h => h.value);
+  $('#app').innerHTML = heroHTML() + `<main>
+    <section class="card">
+      <div class="status ${done.has(cur)?'done':'todo'}">${done.has(cur)
+        ? `✓ ${ymLabel(cur)}分は反映済みです（入力し直して再反映もできます）`
+        : `● ${ymLabel(cur)}分はまだ反映されていません`}</div>
+      <div class="chips">${months.map(m => `<span class="chip ${done.has(m)?'on':''} ${m===cur?'now':''}">${Number(m.slice(5))}月${done.has(m)?' ✓':''}</span>`).join('')}</div>
+    </section>
+    <section class="card"><h2>現金</h2>
+      <div id="cashList">${D.cash.map((c,i) => `<div class="row">
+        <div class="nm"><span>${esc(c.label)} <small>${esc(c.owner)}</small></span><button class="del" data-delcash="${i}">削除</button></div>
+        <div class="yen"><input type="text" inputmode="numeric" data-cash="${i}" value="${Math.round(c.value).toLocaleString('ja-JP')}" aria-label="${esc(c.owner+' '+c.label)}"></div></div>`).join('')}</div>
+      <button class="btn ghost" id="addCash">＋ 現金の項目を追加</button>
+      <div class="total-line num"><span>現金合計</span><span id="cashTotal">${yen(cashT)}</span></div>
+    </section>
+    <section class="card"><h2>投資（評価額・取得金額）</h2>
+      ${cats.filter(c => D.holdings.some(h => h.category===c)).map(c => `<div class="group-h"><span>${esc(c)}</span></div>
+        ${D.holdings.map((h,i) => h.category!==c ? '' : `<div class="row">
+          <div class="nm"><span>${esc(h.name)}</span><button class="del" data-delh="${i}">削除</button></div>
+          <div class="fields">
+            <label class="f">評価額<div class="yen"><input type="text" inputmode="numeric" data-hv="${i}" value="${Math.round(h.value).toLocaleString('ja-JP')}"></div></label>
+            <label class="f">取得金額<div class="yen"><input type="text" inputmode="numeric" data-hc="${i}" value="${Math.round(h.cost).toLocaleString('ja-JP')}"></div></label>
+          </div></div>`).join('')}`).join('')}
+      <button class="btn ghost" id="addHolding">＋ 銘柄を追加</button>
+      <div class="total-line num"><span>投資合計</span><span id="invTotal">${yen(invT)}</span></div>
+    </section>
+    <section class="card">
+      <div class="total-line num" style="font-size:16px"><span>総資産</span><span id="allTotal">${yen(cashT+invT)}</span></div>
+      <button class="btn gold" id="commit">この内容で${ymLabel(cur)}分を反映</button>
+      ${S.dirty ? '<p class="note" style="margin-top:8px">※ 未反映の変更があります</p>' : ''}
+    </section>
+  </main>`;
+  bindHero();
+  const upd = () => {
+    const ct = sum(D.cash, c=>c.value), it = sum(D.holdings, h=>h.value);
+    $('#cashTotal').textContent = yen(ct); $('#invTotal').textContent = yen(it); $('#allTotal').textContent = yen(ct+it);
+  };
+  $('#app').querySelectorAll('input[data-cash],input[data-hv],input[data-hc]').forEach(inp => {
+    inp.addEventListener('focus', () => { inp.value = String(num(inp.value)); inp.select(); });
+    inp.addEventListener('blur', () => { inp.value = Math.round(num(inp.value)).toLocaleString('ja-JP'); });
+    inp.addEventListener('input', () => {
+      const v = num(inp.value); S.dirty = true;
+      if (inp.dataset.cash != null) D.cash[inp.dataset.cash].value = v;
+      if (inp.dataset.hv != null) D.holdings[inp.dataset.hv].value = v;
+      if (inp.dataset.hc != null) D.holdings[inp.dataset.hc].cost = v;
+      upd();
+    });
+  });
+  $('#app').querySelectorAll('[data-delh]').forEach(b => b.onclick = () => {
+    const h = D.holdings[b.dataset.delh];
+    if (!confirm(`「${h.name}」を一覧から削除しますか？（反映ボタンを押すまで保存されません）`)) return;
+    D.holdings.splice(b.dataset.delh, 1); S.dirty = true; viewInput();
+  });
+  $('#app').querySelectorAll('[data-delcash]').forEach(b => b.onclick = () => {
+    const c = D.cash[b.dataset.delcash];
+    if (!confirm(`「${c.owner} ${c.label}」を削除しますか？（反映ボタンを押すまで保存されません）`)) return;
+    D.cash.splice(b.dataset.delcash, 1); S.dirty = true; viewInput();
+  });
+  $('#addHolding').onclick = () => addHoldingForm(cats);
+  $('#addCash').onclick = addCashForm;
+  $('#commit').onclick = commit;
+}
+
+function modal(html, onOk){
+  const wrap = document.createElement('div');
+  wrap.className = 'busy show';
+  wrap.innerHTML = `<form class="card" style="width:min(92vw,420px);margin:0" id="mForm">${html}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button type="button" class="btn ghost" id="mCancel">キャンセル</button><button class="btn" type="submit">追加</button></div></form>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector('#mCancel').onclick = () => wrap.remove();
+  wrap.querySelector('#mForm').onsubmit = e => { e.preventDefault(); if (onOk(wrap) !== false) wrap.remove(); };
+  const first = wrap.querySelector('input,select'); if (first) first.focus();
+}
+function addHoldingForm(cats){
+  modal(`<h2>銘柄を追加</h2>
+    <label class="f">カテゴリ<select id="nCat">${cats.map(c => `<option>${esc(c)}</option>`).join('')}<option value="__new">新しいカテゴリ…</option></select></label>
+    <label class="f" id="nCatNewWrap" hidden style="margin-top:8px">新しいカテゴリ名<input type="text" class="left" id="nCatNew"></label>
+    <label class="f" style="margin-top:8px">銘柄名<input type="text" class="left" id="nName" placeholder="例：トヨタ自動車(7203)" required></label>
+    <div class="fields" style="margin-top:8px">
+      <label class="f">評価額<div class="yen"><input type="text" inputmode="numeric" id="nVal" required></div></label>
+      <label class="f">取得金額<div class="yen"><input type="text" inputmode="numeric" id="nCost"></div></label></div>`,
+  w => {
+    let cat = w.querySelector('#nCat').value;
+    if (cat === '__new') cat = w.querySelector('#nCatNew').value.trim();
+    const name = w.querySelector('#nName').value.trim();
+    if (!cat || !name){ toast('カテゴリと銘柄名を入力してください', true); return false; }
+    const value = num(w.querySelector('#nVal').value), cost = num(w.querySelector('#nCost').value) || value;
+    ensureDraft().holdings.push({id:'h_' + Date.now().toString(36), category:cat, name, value, cost, asOf:ym(new Date())});
+    S.dirty = true; viewInput(); toast('追加しました。最後に「反映」を押してください');
+  });
+  const sel = document.querySelector('#nCat');
+  sel.onchange = () => document.querySelector('#nCatNewWrap').hidden = sel.value !== '__new';
+}
+function addCashForm(){
+  modal(`<h2>現金の項目を追加</h2>
+    <label class="f">名義<select id="cOwner"><option>夫</option><option>妻</option><option>共有</option></select></label>
+    <label class="f" style="margin-top:8px">項目名<input type="text" class="left" id="cLabel" placeholder="例：定期預金" required></label>
+    <label class="f" style="margin-top:8px">金額<div class="yen"><input type="text" inputmode="numeric" id="cVal" required></div></label>`,
+  w => {
+    const owner = w.querySelector('#cOwner').value, label = w.querySelector('#cLabel').value.trim();
+    if (!label){ toast('項目名を入力してください', true); return false; }
+    ensureDraft().cash.push({id:'c_' + Date.now().toString(36), owner, label, value:num(w.querySelector('#cVal').value)});
+    S.dirty = true; viewInput(); toast('追加しました。最後に「反映」を押してください');
+  });
+}
+
+async function commit(){
+  const D = ensureDraft(), cur = ym(new Date());
+  const cash = sum(D.cash, c => c.value), invest = sum(D.holdings, h => h.value);
+  if (!confirm(`${ymLabel(cur)}分として保存します。\n現金 ${yen(cash)}\n投資 ${yen(invest)}\n合計 ${yen(cash+invest)}`)) return;
+  busy(true, '保存中…');
+  try {
+    await apiPost({action:'saveCash', items:D.cash});
+    await apiPost({action:'saveHoldings', items:D.holdings.map(h => ({...h, asOf:cur}))});
+    await apiPost({action:'saveSnapshot', doc:{id:cur, date:cur+'-01', cash, invest}});
+    S.dirty = false;
+    busy(false);
+    await reload(`${ymLabel(cur)}分を反映しました`);
+  } catch(e){
+    busy(false);
+    toast('保存に失敗：' + e.message + '（入力内容は残っています）', true);
+  }
+}
+
+// ===== 設定 =====
+const SETTINGS = [
+  ['収入・支出', [
+    ['husbandIncome','夫 月次手取り','yen'], ['wifeIncome','妻 月次手取り','yen'],
+    ['bonus','ボーナス（1回あたり）','yen'], ['bonusMonths','ボーナス月','months','カンマ区切り 例：7,12'],
+    ['monthlyExpense','世帯 月次支出','yen']]],
+  ['積立・運用', [
+    ['fixedSP500','固定積立①（S&P500）','yen'], ['fixedNASDAQ','固定積立②（NASDAQ100）','yen'],
+    ['cashCap','現金の目標保有額（上限）','yen','超えた分は投資へ回す'],
+    ['returnRate','想定運用利回り（年）','pct'], ['cashRate','現金の利率（年）','pct']]],
+  ['目標', [
+    ['goal','目標金額','yen'], ['goalYears','達成までの年数','int','年'], ['startDate','起点日','date']]],
+  ['予測の「波」（臨時支出）', [
+    ['dipAmount','臨時支出の目安額','yen'], ['dipEveryYears','頻度（何年に1回）','int','年に1回']]],
+];
+function viewSettings(){
+  const a = S.data.assumptions;
+  const val = (k,t) => t==='pct' ? +(num(a[k])*100).toFixed(3) : t==='months' ? bonusMonths(a).join(',') :
+    t==='date' ? String(a[k]||'').slice(0,10) : t==='yen' ? Math.round(num(a[k])).toLocaleString('ja-JP') : (a[k] ?? '');
+  $('#app').innerHTML = heroHTML() + `<main>
+    <form id="setForm">
+    ${SETTINGS.map(([h, rows]) => `<section class="card"><h2>${h}</h2>
+      ${rows.map(([k,lb,t,hint]) => `<label class="set-row"><span class="lb">${lb}${hint?`<small>${hint}</small>`:''}</span>
+        <span class="${t==='yen'?'yen':t==='pct'?'yen pct':''}"><input name="${k}" data-t="${t}" ${t==='date'?'type="date"':'type="text"'}
+          inputmode="${t==='pct'?'decimal':t==='months'?'text':'numeric'}" value="${esc(val(k,t))}"></span></label>`).join('')}
+    </section>`).join('')}
+    <button class="btn" type="submit">設定を保存</button>
+    </form>
+    <section class="card" style="margin-top:14px"><h2>共有・端末</h2>
+      <p class="note">妻の端末で開くリンク（キー付き）をコピーします。LINEなどで本人にだけ送ってください。開くとキーが端末に保存され、URLからは消えます。</p>
+      <button class="btn ghost" id="shareLink">共有リンクをコピー</button>
+      <button class="btn ghost" id="logout" style="margin-top:8px;color:var(--minus);border-color:var(--minus)">この端末からキーを削除</button>
+    </section>
+  </main>`;
+  bindHero();
+  $('#setForm').querySelectorAll('input[data-t="yen"]').forEach(inp => {
+    inp.addEventListener('focus', () => { inp.value = String(num(inp.value)); inp.select(); });
+    inp.addEventListener('blur', () => { inp.value = Math.round(num(inp.value)).toLocaleString('ja-JP'); });
+  });
+  $('#setForm').onsubmit = async e => {
+    e.preventDefault();
+    const next = {...a};
+    $('#setForm').querySelectorAll('input[name]').forEach(inp => {
+      const k = inp.name, t = inp.dataset.t;
+      if (t==='pct') next[k] = num(inp.value)/100;
+      else if (t==='months'){ const ms = String(inp.value).split(/[,、\s]+/).map(Number).filter(n=>n>=1&&n<=12);
+        next[k] = Array.isArray(a[k]) ? ms : ms.join(','); }
+      else if (t==='date') next[k] = inp.value;
+      else next[k] = num(inp.value);
+    });
+    busy(true, '保存中…');
+    try { await apiPost({action:'saveAssumptions', data:next}); busy(false); await reload('設定を保存しました'); }
+    catch(err){ busy(false); toast('保存に失敗：' + err.message, true); }
+  };
+  $('#shareLink').onclick = async () => {
+    const url = location.origin + location.pathname + '#key=' + encodeURIComponent(getKey());
+    try { await navigator.clipboard.writeText(url); toast('リンクをコピーしました'); }
+    catch(e){ prompt('このリンクをコピーしてください', url); }
+  };
+  $('#logout').onclick = () => { if (confirm('この端末からキーを削除しますか？（データは消えません）')){ clearKey(); S.data=null; renderGate(); } };
+}
+</script>
+</body>
+</html>
