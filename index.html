@@ -145,7 +145,7 @@ details.tbl summary{font-size:12px;color:var(--navy2);cursor:pointer;margin-top:
 // ===== 設定 =====
 const API = 'https://script.google.com/macros/s/AKfycbzjxfSIXy5CjbfkSkjsjqaPKwG6ndCYKPTKPIGTAmyrTgHGlPYBSTFucoDluu6ZCJikuQ/exec';
 const KEY_STORE = 'assetHome.key';
-const APP_VERSION = '2026-10-19.6';
+const APP_VERSION = '2026-10-19.7';
 const CATEGORY_ORDER = ['国内株式','投資信託(成長)','投資信託(つみたて)','米国株式等'];
 
 // ===== 小道具 =====
@@ -565,6 +565,12 @@ function viewInput(){
   }
   $('#app').innerHTML = heroHTML() + `<main>
     ${head}
+    <section class="card"><h2>スクショから読み取る（SBI証券）</h2>
+      <p class="note">アプリの「資産 → 保有一覧」（投資信託・国内株式）のスクショを選んでください。複数枚まとめて選べます。読み取りはこのスマホの中だけで行い、画像は外に送りません。</p>
+      <input type="file" id="ocrFile" accept="image/*" multiple hidden>
+      <button class="btn ghost" id="ocrBtn" type="button">スクショを選ぶ</button>
+      <div id="ocrOut"></div>
+    </section>
     <section class="card"><h2>現金</h2>
       <div id="cashList">${D.cash.map((c,i) => `<div class="row">
         <div class="nm"><span>${esc(c.label)} <small>${esc(c.owner)}</small></span><button class="del" data-delcash="${i}">削除</button></div>
@@ -616,6 +622,9 @@ function viewInput(){
     D.cash.splice(b.dataset.delcash, 1); S.dirty = true; viewInput();
   });
   $('#addHolding').onclick = () => addHoldingForm(cats);
+  $('#ocrBtn').onclick = () => $('#ocrFile').click();
+  $('#ocrFile').onchange = e => { const f = [...e.target.files]; e.target.value = ''; if (f.length) runOcr(f); };
+  if (S.ocr) renderOcr();
   $('#addCash').onclick = addCashForm;
   $('#commit').onclick = commit;
 }
@@ -764,7 +773,7 @@ function viewSettings(){
 // ===== 出口戦略 =====
 // 金額はすべて「今の価値（実質）」で入力・計算し、名目額はインフレ率で換算して表示する
 const EXIT_DEFAULTS = {
-  exitHusbandBirthYear:0, exitWifeBirthYear:0, exitRetireAge:60, exitEndAge:95,
+  exitHusbandBirthYear:0, exitWifeBirthYear:0, exitRetireAge:60, exitEndAge:95, exitWifeRetireAge:null, exitWifeWorkIncome:null,
   exitMonthlyLiving:null, exitAnnualExtra:0,
   exitHusbandPension:0, exitHusbandPensionAge:65, exitWifePension:0, exitWifePensionAge:65,
   exitHusbandGross:null, exitWifeGross:null, exitHusbandWorkStart:22, exitWifeWorkStart:22, exitWageGrowth:0.01,
@@ -774,7 +783,10 @@ const EXIT_DEFAULTS = {
 const EXIT_FIELDS = [
   ['家族とリタイア', [
     ['exitHusbandBirthYear','夫の生まれ年','int','西暦 例：1990'], ['exitWifeBirthYear','妻の生まれ年','int','西暦'],
-    ['exitRetireAge','リタイア時の夫の年齢','int','この年から2人とも給与収入なしの想定'], ['exitEndAge','何歳まで計算するか（夫）','int']]],
+    ['exitRetireAge','夫のリタイア年齢','int'],
+    ['exitWifeRetireAge','妻のリタイア年齢','int','初期値は夫と同じ年にリタイア'],
+    ['exitWifeWorkIncome','夫のリタイア後も妻が働く間の手取り（月）','yen','初期値は設定の妻の手取り'],
+    ['exitEndAge','何歳まで計算するか（夫）','int']]],
   ['老後の年間支出（今の価値）', [
     ['exitMonthlyLiving','毎月の生活費','yen','初期値は設定の「世帯 月次支出」'], ['exitAnnualExtra','年間の特別支出','yen','旅行・車・家電・帰省など']]],
   ['年金の概算（年収から）', [
@@ -803,6 +815,9 @@ function exitParams(a){
   if (p.exitMonthlyLiving === null) p.exitMonthlyLiving = num(a.monthlyExpense);
   // 額面年収の初期値：手取り÷0.78（概算）
   if (p.exitHusbandGross === null) p.exitHusbandGross = Math.round((num(a.husbandIncome)*12 + num(a.bonus)*bonusMonths(a).length) / 0.78 / 10000) * 10000;
+  const hb0 = p.exitHusbandBirthYear, wb0 = p.exitWifeBirthYear || hb0;
+  if (p.exitWifeRetireAge === null) p.exitWifeRetireAge = hb0 ? hb0 + p.exitRetireAge - wb0 : p.exitRetireAge;
+  if (p.exitWifeWorkIncome === null) p.exitWifeWorkIncome = num(a.wifeIncome);
   if (p.exitWifeGross === null) p.exitWifeGross = Math.round(num(a.wifeIncome)*12 / 0.78 / 10000) * 10000;
   return p;
 }
@@ -831,7 +846,7 @@ function calcExit(a){
   const retireYear = hb + p.exitRetireAge;
   const yrs = Math.max(0, retireYear - thisYear);
   const E = p.exitMonthlyLiving * 12 + p.exitAnnualExtra;
-  const wifeRetireAge = retireYear - wb;
+  const wifeRetireAge = p.exitWifeRetireAge, wRetireYear = wb + wifeRetireAge;
   const hEst = estimatePension(p.exitHusbandGross, hb, p.exitHusbandWorkStart, p.exitRetireAge, p.exitWageGrowth);
   const wEst = estimatePension(p.exitWifeGross, wb, p.exitWifeWorkStart, wifeRetireAge, p.exitWageGrowth);
   const hBase = p.exitHusbandPension > 0 ? p.exitHusbandPension : hEst.total;
@@ -843,16 +858,17 @@ function calcExit(a){
     if (y - wb >= p.exitWifePensionAge) s += wPen;
     return s * (1 - p.exitPensionTaxRate) * Math.pow(1 - p.exitPensionSlide, Math.max(0, y - thisYear));
   };
-  const fullYear = Math.max(retireYear, hb + p.exitHusbandPensionAge, wb + p.exitWifePensionAge);
+  const fullYear = Math.max(retireYear, hb + p.exitHusbandPensionAge, wb + p.exitWifePensionAge, wRetireYear);
+  const wifeWork = y => (y >= retireYear && y < wRetireYear) ? p.exitWifeWorkIncome * 12 : 0;
   const Pfull = pensionNet(fullYear);
   const G = Math.max(0, E - Pfull);                       // 年金がそろった後の毎年の不足
   const gross = 1 / (1 - Math.min(0.9, p.exitWithdrawTaxRate));
   const core = p.exitWithdrawalRate > 0 ? G / p.exitWithdrawalRate * gross : 0;
   let bridge = 0; const rows = [];
   for (let y = retireYear; y <= hb + p.exitEndAge; y++){
-    const P = pensionNet(y), need = Math.max(0, E - P);
+    const P = pensionNet(y), work = Math.min(wifeWork(y), Math.max(0, E - P)), need = Math.max(0, E - P - work);
     if (y < fullYear) bridge += Math.max(0, need - G) * gross;   // 空白期間に上乗せで必要な分
-    rows.push({year:y, hAge:y-hb, wAge:y-wb, pension:Math.min(P, E), withdraw:need, bridge:y < fullYear});
+    rows.push({year:y, hAge:y-hb, wAge:y-wb, pension:Math.min(P, E), work, withdraw:need, bridge:y < fullYear});
   }
   const real = core + bridge + p.exitBuffer;
   const inf = Math.pow(1 + p.exitInflation, yrs);
@@ -871,7 +887,7 @@ function calcExit(a){
   const r = Math.pow(1 + num(a.returnRate), 1/12) - 1;
   const extraMonthly = short > 0 ? (r > 0 ? short * r / (Math.pow(1+r, n) - 1) : short / n) : 0;
   return {p, E, Pfull, G, core, bridge, real, nominal:real*inf, inf, yrs, retireYear, fullYear,
-    bridgeYears:Math.max(0, fullYear - retireYear), rows, hEst, wEst, hPen, wPen,
+    bridgeYears:Math.max(0, fullYear - retireYear), rows, wRetireYear, hEst, wEst, hPen, wPen,
     hSrc:p.exitHusbandPension > 0 ? '定期便' : '概算', wSrc:p.exitWifePension > 0 ? '定期便' : '概算', fA, fB, extraMonthly, hAge:thisYear-hb, wAge:thisYear-wb};
 }
 
@@ -936,7 +952,7 @@ function drawExit(a){
   box.innerHTML = `
     <section class="card">
       <h2>老後に必要な資産（目標額）</h2>
-      <p class="note">${r.retireYear}年（夫${r.p.exitRetireAge}歳・妻${r.retireYear - (r.p.exitWifeBirthYear||r.p.exitHusbandBirthYear)}歳）にリタイアする場合</p>
+      <p class="note">夫が${r.retireYear}年（${r.p.exitRetireAge}歳）、妻が${r.wRetireYear}年（${r.p.exitWifeRetireAge}歳）にリタイアする場合</p>
       <div class="grid2" style="margin:0">
         <div class="kpi" style="box-shadow:none;background:var(--chip)"><div class="k">今の価値で</div><div class="v num">${man(r.real)}</div></div>
         <div class="kpi" style="box-shadow:none;background:var(--chip)"><div class="k">${r.retireYear}年の金額で</div><div class="v num">${man(r.nominal)}</div><div class="d">インフレ${pct(r.p.exitInflation)}×${r.yrs}年</div></div>
@@ -975,13 +991,14 @@ function drawExit(a){
     </section>
     <section class="card">
       <h2>リタイア後の毎年のお金（今の価値）</h2>
-      <p class="note">棒の高さ＝年間支出。年金で足りない分を資産から取り崩す</p>
-      ${legendHTML([[C.invest,'年金の手取り'],[C.cash,'資産から取り崩し']])}
+      <p class="note">棒の高さ＝年間支出。年金と妻の給与で足りない分を資産から取り崩す</p>
+      ${legendHTML([[C.invest,'年金の手取り'],[C.c3,'妻の給与'],[C.cash,'資産から取り崩し']])}
       <div class="chart" style="height:220px"><canvas id="cExit" aria-label="リタイア後の年金と取り崩し"></canvas></div>
     </section>`;
   const rows = r.rows;
   mkChart('cExit', {type:'bar', data:{labels:rows.map(x => `${x.hAge}歳`), datasets:[
       {label:'年金の手取り', data:rows.map(x=>x.pension), backgroundColor:C.invest, borderColor:C.card, borderWidth:{top:1}, borderSkipped:false, maxBarThickness:18},
+      {label:'妻の給与', data:rows.map(x=>x.work), backgroundColor:C.c3, borderColor:C.card, borderWidth:{top:1}, borderSkipped:false, maxBarThickness:18},
       {label:'資産から取り崩し', data:rows.map(x=>x.withdraw), backgroundColor:C.cash, borderColor:C.card, borderWidth:{bottom:1}, borderSkipped:false, maxBarThickness:18}]},
     options:{interaction:{mode:'index', intersect:false},
       plugins:{tooltip:{callbacks:{title:items => { const x = rows[items[0].dataIndex]; return `${x.year}年 夫${x.hAge}歳・妻${x.wAge}歳${x.bridge?'（空白期間）':''}`; },
@@ -995,6 +1012,212 @@ function drawExit(a){
     try { await apiPost({action:'saveAssumptions', data:{...a, goal, goalYears:years}}); busy(false); await reload('目標金額を更新しました'); }
     catch(err){ busy(false); toast('保存に失敗：' + err.message, true); }
   };
+}
+
+// ===== スクショ読み取り（SBI証券アプリの保有一覧） =====
+// 数字の候補を作る：カンマ/ピリオドの読み違い、末尾の「円」の読み違いに対応
+function numCandidates(s){
+  const out = new Set();
+  // 左の列からはみ出した文字を避けるため、いちばん右の数字のかたまりだけを使う
+  const toks = String(s).trim().split(/\s+/).filter(t => /[0-9]/.test(t));
+  if (!toks.length) return [];
+  const m = toks[toks.length-1].match(/[0-9][0-9.,]*[0-9]?/g);
+  if (!m) return [];
+  for (let raw of [m[m.length-1]]){
+    for (const r of [raw, raw.slice(0,-1)]){       // 末尾1文字が「円」の読み違いの場合
+      if (!/[0-9]/.test(r)) continue;
+      const parts = r.split(/[.,]/);
+      const n = parts.length - 1;
+      for (let mask = 0; mask < (1 << Math.max(0,n)); mask++){
+        // 各区切りを桁区切り(0)か小数点(1)とみなす。小数点は最後の1つだけ
+        let ok = true, intPart = parts[0], dec = '';
+        for (let i = 1; i <= n; i++){
+          const isDec = (mask >> (i-1)) & 1;
+          if (isDec){ if (i !== n || parts[i].length > 2 || parts[i].length < 1){ ok=false; break; } dec = parts[i]; }
+          else { if (parts[i].length !== 3){ ok=false; break; } intPart += parts[i]; }
+        }
+        if (ok && intPart !== '') out.add(Number(intPart + (dec ? '.' + dec : '')));
+      }
+      if (n === 0) out.add(Number(r));
+    }
+  }
+  return [...out].filter(v => Number.isFinite(v) && v > 0);
+}
+function plValue(s){
+  const t = String(s).replace(/\s/g,'');
+  const m = t.match(/([+\-−ー‐])?([0-9][0-9,.]*)/);
+  if (!m) return null;
+  // 桁区切りが正しい整数の読み方を選ぶ（末尾の「円」を1と読んだ場合も外す）
+  const c = numCandidates(m[2]).filter(Number.isInteger).sort((x,y)=>y-x);
+  if (!c.length) return null;
+  return {abs:c[0], sign: m[1] ? (m[1]==='+' ? 1 : -1) : 0};
+}
+function rateValue(s){
+  const m = String(s).replace(/\s/g,'').match(/([+\-−])?([0-9]+[.,][0-9]{1,2})[.,]?%/);
+  return m ? {abs:Number(m[2].replace(',','.')), sign: m[1] ? (m[1]==='+'?1:-1) : 0} : null;
+}
+const CODE_RE = /^[0-9]{3}[0-9A-Z]$|^[0-9]{7}[0-9A-Z]$/;   // 株：2638・285A／投信：03311187・0331418A
+
+// cols: {left,mid,right: [{y, text}]}, H: 画像の高さ
+function parseSbi(cols, W){
+  const sc = W / 1290;
+  const anchors = cols.left.map(l => ({y:l.y, code:l.text.replace(/[^0-9A-Z]/g,'')}))
+    .filter(a => CODE_RE.test(a.code))
+    .filter((a, i, arr) => !(arr[i+1] && arr[i+1].y - a.y < 120*sc));   // すぐ下にもコードがあれば下を採用
+  const rows = [];
+  anchors.forEach((a, i) => {
+    const lo = i ? anchors[i-1].y + 30*sc : a.y - 330*sc, hi = a.y + 30*sc;
+    const mids = cols.mid.filter(l => l.y > lo && l.y <= hi && /[0-9]/.test(l.text)).sort((p,q)=>p.y-q.y);
+    const rights = cols.right.filter(l => l.y > lo && l.y <= hi).sort((p,q)=>p.y-q.y);
+    const plLine = rights.filter(l => !/%/.test(l.text) && /[0-9]/.test(l.text)).pop();
+    const rateLine = rights.filter(l => /%/.test(l.text)).pop();
+    if (!plLine || mids.length < 2) return;
+    const [m0, m1] = mids.slice(-2);    // 銘柄コードの直前の2行＝現在値・取得単価
+    const pl = plValue(plLine.text), rate = rateLine ? rateValue(rateLine.text) : null;
+    if (!pl) return;
+    // 現在値・取得単価の読み方の組み合わせから、損益率と合うものを選ぶ
+    let best = null;
+    for (const p of numCandidates(m0.text)) for (const u of numCandidates(m1.text)){
+      if (p === u) continue;
+      const r = Math.abs((p/u - 1) * 100);
+      const err = rate ? Math.abs(r - rate.abs) : 0;
+      // 株は数量が整数になるはず
+      let qty = pl.abs / Math.abs(p - u);
+      const isStock = a.code.length === 4;
+      const intErr = isStock ? Math.abs(qty - Math.round(qty)) : 0;
+      const score = err * 10 + intErr + (rate ? 0 : 1);
+      if (!best || score < best.score) best = {score, p, u, err, intErr, qty};
+    }
+    if (!best) return;
+    const isStock = a.code.length === 4;
+    let qty = best.qty;
+    if (isStock) qty = Math.max(1, Math.round(qty));
+    const value = qty * best.p, cost = qty * best.u;
+    const sure = (rate ? best.err <= 0.02 : false) && (!isStock || best.intErr < 0.05);
+    rows.push({y:a.y, code:a.code, type:isStock?'stock':'fund', price:best.p, unit:best.u,
+      pl:(best.p >= best.u ? 1 : -1) * pl.abs, rate:rate ? rate.abs : null,
+      qty, value:Math.round(value), cost:Math.round(cost), sure});
+  });
+  // 画面上部の評価額合計（検算用）
+  const firstY = rows.length ? rows[0].y - 330*sc : Infinity;
+  const totalLine = cols.right.filter(l => l.y < firstY && /[0-9]{1,3}[,.][0-9]{3}/.test(l.text) && !/[%+\-]/.test(l.text) && !/[0-9]{3}\/|20[0-9]{2}[\/7]/.test(l.text))
+    .sort((p,q)=>p.y-q.y)[0];
+  let screenTotal = null;
+  if (totalLine){ const c = numCandidates(totalLine.text).filter(Number.isInteger).sort((x,y)=>y-x); screenTotal = c[0] ?? null; }
+  return {rows, screenTotal};
+}
+
+// ===== スクショ読み取り：画面まわり =====
+const OCR_LIB = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let ocrWorker = null;
+function loadScript(src){ return new Promise((ok, ng) => { const el = document.createElement('script'); el.src = src; el.onload = ok; el.onerror = () => ng(new Error('読み取り用プログラムを取得できませんでした')); document.head.appendChild(el); }); }
+async function getOcrWorker(){
+  if (!window.Tesseract) await loadScript(OCR_LIB);
+  if (!ocrWorker){
+    ocrWorker = await Tesseract.createWorker('eng', 1);
+    await ocrWorker.setParameters({ tessedit_char_whitelist:'0123456789,.+-()%円ABCDEFGHIJKLMNOPQRSTUVWXYZ', tessedit_pageseg_mode:'6' });
+  }
+  return ocrWorker;
+}
+async function ocrFile(file){
+  const bmp = await createImageBitmap(file);
+  const W = bmp.width, H = bmp.height; bmp.close && bmp.close();
+  const w = await getOcrWorker(), cols = {};
+  for (const [nm, a, b] of [['left',0,0.256],['mid',0.256,0.643],['right',0.643,1]]){
+    const { data } = await w.recognize(file, { rectangle:{left:Math.round(a*W), top:0, width:Math.round((b-a)*W), height:H} });
+    cols[nm] = data.lines.map(l => ({y:(l.bbox.y0 + l.bbox.y1)/2, text:l.text.trim()}));
+  }
+  return parseSbi(cols, W);
+}
+function ocrCodeMap(){ try { return JSON.parse(S.data.assumptions.ocrCodeMap || '{}') || {}; } catch(e){ return {}; } }
+function matchOcrRows(rows, holdings){
+  const map = ocrCodeMap(), used = new Set();
+  rows.forEach(r => {
+    let h = null;
+    if (r.type === 'stock') h = holdings.find(x => x.id === 'h_' + r.code || String(x.name).includes('(' + r.code + ')'));
+    if (!h && map[r.code]) h = holdings.find(x => x.id === map[r.code]);
+    if (h){ r.target = h.id; used.add(h.id); }
+  });
+  rows.filter(r => !r.target && r.type === 'fund').forEach(r => {   // 初回の投信は評価額が近いものを候補に
+    let best = null;
+    holdings.filter(x => !used.has(x.id) && x.category !== '国内株式').forEach(x => {
+      const d = Math.abs(x.value - r.value) / Math.max(x.value, r.value, 1);
+      if (d < 0.35 && (!best || d < best.d)) best = {x, d};
+    });
+    if (best){ r.target = best.x.id; r.guessed = true; used.add(best.x.id); }
+  });
+  rows.forEach(r => { if (!r.target){ r.target = '__new'; r.newCat = r.type === 'stock' ? '国内株式' : '投資信託(成長)'; r.newName = ''; } });
+}
+async function runOcr(files){
+  const out = $('#ocrOut'), D = ensureDraft();
+  const all = [], checks = [];
+  try {
+    for (let i = 0; i < files.length; i++){
+      out.innerHTML = `<p class="note"><span class="spin" style="display:inline-block;vertical-align:middle;width:14px;height:14px;border-width:2px"></span> 読み取り中 ${i+1}/${files.length}… ${!ocrWorker ? '（初回は準備に少し時間がかかります）' : ''}</p>`;
+      const r = await ocrFile(files[i]);
+      const sumV = r.rows.reduce((t, x) => t + x.value, 0);
+      checks.push({n:i+1, count:r.rows.length, sum:sumV, screen:r.screenTotal});
+      r.rows.forEach(x => { if (!all.some(y => y.code === x.code)) all.push(x); });
+    }
+  } catch(e){ out.innerHTML = `<p class="note minus">読み取りに失敗しました：${esc(e.message)}</p>`; return; }
+  if (!all.length){ out.innerHTML = '<p class="note minus">銘柄を読み取れませんでした。SBI証券アプリの「保有一覧」の画面か確認してください。</p>'; return; }
+  matchOcrRows(all, D.holdings);
+  S.ocr = {rows:all, checks};
+  renderOcr();
+}
+function renderOcr(){
+  const out = $('#ocrOut'); if (!out || !S.ocr) return;
+  const D = ensureDraft(), {rows, checks} = S.ocr;
+  const opts = r => `<option value="__new" ${r.target==='__new'?'selected':''}>＋新しい銘柄として追加</option><option value="__skip" ${r.target==='__skip'?'selected':''}>使わない</option>` +
+    D.holdings.map(h => `<option value="${esc(h.id)}" ${r.target===h.id?'selected':''}>${esc(h.name)}</option>`).join('');
+  const seen = new Set(rows.filter(r => !r.target.startsWith('__')).map(r => r.target));
+  const missing = D.holdings.filter(h => !seen.has(h.id));
+  out.innerHTML = `
+    ${checks.map(c => { const diff = c.screen != null ? c.screen - c.sum : null;
+      const ok = diff != null && Math.abs(diff) <= Math.max(100, c.screen*0.001);
+      return `<p class="note">${checks.length>1?`${c.n}枚目：`:''}${c.count}件を読み取り、合計 ${yen(c.sum)}${c.screen!=null ? `／画面の合計 ${yen(c.screen)} ` + (ok ? '<span class="plus">✓ 一致</span>' : `<span class="minus">差 ${yen(diff)}（画面の外の銘柄があれば、続きのスクショも追加してください）</span>`) : ''}</p>`; }).join('')}
+    ${rows.map((r, i) => `<div class="row">
+      <div class="nm"><span>${r.type==='stock'?'株':'投信'} ${esc(r.code)} ${r.sure ? '' : '<small class="minus">要確認</small>'}${r.guessed ? '<small>（評価額が近い銘柄を候補にしました）</small>' : ''}</span></div>
+      <select data-ocr="${i}" class="left" style="margin-bottom:6px">${opts(r)}</select>
+      ${r.target==='__new' ? `<div class="fields" style="margin-bottom:6px"><input type="text" class="left" data-ocrname="${i}" placeholder="銘柄名" value="${esc(r.newName||'')}">
+        <select data-ocrcat="${i}" class="left">${[...new Set([...CATEGORY_ORDER, ...D.holdings.map(h=>h.category)])].map(c => `<option ${c===r.newCat?'selected':''}>${esc(c)}</option>`).join('')}</select></div>` : ''}
+      <div class="fields num" style="font-size:13px"><span>評価額 <b>${yen(r.value)}</b></span><span>取得金額 ${yen(r.cost)}</span></div>
+    </div>`).join('')}
+    ${missing.length ? `<p class="note">今回のスクショに無かった銘柄（前の値のまま）：${missing.map(h => esc(h.name)).join('、')}</p>` : ''}
+    <button class="btn" id="ocrApply">この内容を入力欄に入れる</button>
+    <p class="note" style="margin-top:6px">まだ保存はされません。入力欄を確認してから下の「反映」を押してください。</p>`;
+  out.querySelectorAll('[data-ocr]').forEach(el => el.onchange = () => { const r = rows[el.dataset.ocr]; r.target = el.value; r.guessed = false;
+    if (el.value === '__new'){ r.newCat = r.newCat || (r.type==='stock' ? '国内株式' : '投資信託(成長)'); r.newName = r.newName || ''; } renderOcr(); });
+  out.querySelectorAll('[data-ocrname]').forEach(el => el.oninput = () => rows[el.dataset.ocrname].newName = el.value);
+  out.querySelectorAll('[data-ocrcat]').forEach(el => el.onchange = () => rows[el.dataset.ocrcat].newCat = el.value);
+  $('#ocrApply').onclick = applyOcr;
+}
+function applyOcr(){
+  const D = ensureDraft(), map = ocrCodeMap(), month = S.inputMonth || ym(new Date());
+  let n = 0;
+  for (const r of S.ocr.rows){
+    if (r.target === '__skip') continue;
+    if (r.target === '__new'){
+      if (!r.newName.trim()){ toast(`${r.code} の銘柄名を入れてください`, true); return; }
+      const id = 'h_' + r.code;
+      D.holdings.push({id, category:r.newCat, name:r.newName.trim() + (r.type==='stock' ? `(${r.code})` : ''), value:r.value, cost:r.cost, asOf:month});
+      if (r.type === 'fund') map[r.code] = id;
+    } else {
+      const h = D.holdings.find(x => x.id === r.target); if (!h) continue;
+      h.value = r.value; h.cost = r.cost;
+      if (r.type === 'fund') map[r.code] = h.id;
+    }
+    n++;
+  }
+  S.dirty = true; S.ocr = null;
+  // 投信コードと銘柄の対応を覚えておく（次回から自動で当てはまる）
+  const prev = S.data.assumptions.ocrCodeMap || '{}', next = JSON.stringify(map);
+  if (next !== prev){
+    S.data.assumptions.ocrCodeMap = next;
+    apiPost({action:'saveAssumptions', data:S.data.assumptions}).catch(() => {});
+  }
+  viewInput();
+  toast(`${n}件を入力欄に入れました。確認して「反映」を押してください`);
 }
 </script>
 </body>
