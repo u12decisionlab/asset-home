@@ -713,6 +713,7 @@ const EXIT_DEFAULTS = {
   exitHusbandBirthYear:0, exitWifeBirthYear:0, exitRetireAge:60, exitEndAge:95,
   exitMonthlyLiving:null, exitAnnualExtra:0,
   exitHusbandPension:0, exitHusbandPensionAge:65, exitWifePension:0, exitWifePensionAge:65,
+  exitHusbandGross:null, exitWifeGross:null, exitHusbandWorkStart:22, exitWifeWorkStart:22, exitWageGrowth:0.01,
   exitPensionTaxRate:0.12, exitPensionSlide:0,
   exitWithdrawalRate:0.04, exitWithdrawTaxRate:0.10, exitInflation:0.02, exitBuffer:0,
 };
@@ -722,9 +723,14 @@ const EXIT_FIELDS = [
     ['exitRetireAge','リタイア時の夫の年齢','int','この年から2人とも給与収入なしの想定'], ['exitEndAge','何歳まで計算するか（夫）','int']]],
   ['老後の年間支出（今の価値）', [
     ['exitMonthlyLiving','毎月の生活費','yen','初期値は設定の「世帯 月次支出」'], ['exitAnnualExtra','年間の特別支出','yen','旅行・車・家電・帰省など']]],
-  ['年金（ねんきん定期便の見込額）', [
-    ['exitHusbandPension','夫の年金（年額・額面）','yen'], ['exitHusbandPensionAge','夫の受給開始年齢','int','繰上げ60〜繰下げ75'],
-    ['exitWifePension','妻の年金（年額・額面）','yen'], ['exitWifePensionAge','妻の受給開始年齢','int'],
+  ['年金の概算（年収から）', [
+    ['exitHusbandGross','夫の今の年収（額面）','yen','初期値は設定の手取り÷0.78で推定'],
+    ['exitWifeGross','妻の今の年収（額面）','yen','同上'],
+    ['exitHusbandWorkStart','夫が会社員になった年齢','int'], ['exitWifeWorkStart','妻が会社員になった年齢','int'],
+    ['exitWageGrowth','昇給率（年・物価を除く）','pct','初期値1%']]],
+  ['年金（ねんきん定期便があれば）', [
+    ['exitHusbandPension','夫の年金（65歳・年額）','yen','0なら上の年収から概算'], ['exitHusbandPensionAge','夫の受給開始年齢','int','65より遅いと月0.7%増、早いと月0.4%減'],
+    ['exitWifePension','妻の年金（65歳・年額）','yen','0なら上の年収から概算'], ['exitWifePensionAge','妻の受給開始年齢','int'],
     ['exitPensionTaxRate','年金から引かれる税・社会保険料','pct','概算10〜15%'],
     ['exitPensionSlide','年金の目減り（年あたり）','pct','物価に追いつかない分。0なら物価並みに増える想定']]],
   ['取り崩し・税・インフレ', [
@@ -741,7 +747,28 @@ function exitParams(a){
     p[k] = (v === undefined || v === null || v === '') ? EXIT_DEFAULTS[k] : num(v);
   }
   if (p.exitMonthlyLiving === null) p.exitMonthlyLiving = num(a.monthlyExpense);
+  // 額面年収の初期値：手取り÷0.78（概算）
+  if (p.exitHusbandGross === null) p.exitHusbandGross = Math.round((num(a.husbandIncome)*12 + num(a.bonus)*bonusMonths(a).length) / 0.78 / 10000) * 10000;
+  if (p.exitWifeGross === null) p.exitWifeGross = Math.round(num(a.wifeIncome)*12 / 0.78 / 10000) * 10000;
   return p;
+}
+
+// 年金の概算（2025年度の制度で計算。今の価値）
+const PENSION = { basicFull:831700, rate:5.481/1000, annualCap:650000*12 + 1500000*2 };
+// ↑ 標準報酬の上限（月65万円）＋賞与上限（150万円×2回）≒ 年1,080万円
+function estimatePension(gross, birthYear, workStart, workEnd, growth){
+  const nowAge = new Date().getFullYear() - birthYear;
+  let total = 0, years = 0;
+  for (let age = workStart; age < Math.min(workEnd, 70); age++){
+    const g = Math.min(PENSION.annualCap, gross * Math.pow(1 + growth, age - nowAge));
+    total += g; years++;
+  }
+  const employee = total * PENSION.rate;          // 報酬比例部分（老齢厚生年金）
+  return {basic:PENSION.basicFull, employee, total:PENSION.basicFull + employee, years};
+}
+function startAgeFactor(age){
+  const m = Math.round((age - 65) * 12);
+  return m >= 0 ? 1 + 0.007 * Math.min(m, 120) : 1 + 0.004 * Math.max(m, -60);
 }
 function calcExit(a){
   const p = exitParams(a), now = new Date(), thisYear = now.getFullYear();
@@ -750,10 +777,16 @@ function calcExit(a){
   const retireYear = hb + p.exitRetireAge;
   const yrs = Math.max(0, retireYear - thisYear);
   const E = p.exitMonthlyLiving * 12 + p.exitAnnualExtra;
+  const wifeRetireAge = retireYear - wb;
+  const hEst = estimatePension(p.exitHusbandGross, hb, p.exitHusbandWorkStart, p.exitRetireAge, p.exitWageGrowth);
+  const wEst = estimatePension(p.exitWifeGross, wb, p.exitWifeWorkStart, wifeRetireAge, p.exitWageGrowth);
+  const hBase = p.exitHusbandPension > 0 ? p.exitHusbandPension : hEst.total;
+  const wBase = p.exitWifePension > 0 ? p.exitWifePension : wEst.total;
+  const hPen = hBase * startAgeFactor(p.exitHusbandPensionAge), wPen = wBase * startAgeFactor(p.exitWifePensionAge);
   const pensionNet = y => {
     let s = 0;
-    if (y - hb >= p.exitHusbandPensionAge) s += p.exitHusbandPension;
-    if (y - wb >= p.exitWifePensionAge) s += p.exitWifePension;
+    if (y - hb >= p.exitHusbandPensionAge) s += hPen;
+    if (y - wb >= p.exitWifePensionAge) s += wPen;
     return s * (1 - p.exitPensionTaxRate) * Math.pow(1 - p.exitPensionSlide, Math.max(0, y - thisYear));
   };
   const fullYear = Math.max(retireYear, hb + p.exitHusbandPensionAge, wb + p.exitWifePensionAge);
@@ -784,7 +817,8 @@ function calcExit(a){
   const r = Math.pow(1 + num(a.returnRate), 1/12) - 1;
   const extraMonthly = short > 0 ? (r > 0 ? short * r / (Math.pow(1+r, n) - 1) : short / n) : 0;
   return {p, E, Pfull, G, core, bridge, real, nominal:real*inf, inf, yrs, retireYear, fullYear,
-    bridgeYears:Math.max(0, fullYear - retireYear), rows, fA, fB, extraMonthly, hAge:thisYear-hb, wAge:thisYear-wb};
+    bridgeYears:Math.max(0, fullYear - retireYear), rows, hEst, wEst, hPen, wPen,
+    hSrc:p.exitHusbandPension > 0 ? '定期便' : '概算', wSrc:p.exitWifePension > 0 ? '定期便' : '概算', fA, fB, extraMonthly, hAge:thisYear-hb, wAge:thisYear-wb};
 }
 
 function viewExit(){
@@ -832,7 +866,7 @@ function drawExit(a){
   old.forEach(c => c.destroy());
   const r = calcExit(a), C = COL(), box = $('#exitResult');
   if (r.missing){
-    box.innerHTML = `<section class="card"><h2>出口戦略</h2><p class="note">下の「夫の生まれ年」と年金の見込額を入れると、老後に必要な資産額を計算します。</p></section>`;
+    box.innerHTML = `<section class="card"><h2>出口戦略</h2><p class="note">下の「夫の生まれ年」と「妻の生まれ年」を入れると、年収から年金を概算して、老後に必要な資産額を計算します。</p></section>`;
     return;
   }
   const line = (lb, v, note='', cls='') => `<tr><td>${lb}${note?`<div class="cat">${note}</div>`:''}</td><td class="${cls}">${v}</td></tr>`;
@@ -847,7 +881,7 @@ function drawExit(a){
       </div>
       <table class="num" style="margin-top:10px"><tbody>
         ${line('① 年間支出', yen(r.E), `月${man(r.p.exitMonthlyLiving)}×12＋特別支出${man(r.p.exitAnnualExtra)}`)}
-        ${line('② 年金の手取り（2人分・年）', yen(r.Pfull), `${r.fullYear}年に2人とも受給開始`)}
+        ${line('② 年金の手取り（2人分・年）', yen(r.Pfull), `夫${man(r.hPen)}（${r.hSrc}・${r.p.exitHusbandPensionAge}歳〜）＋妻${man(r.wPen)}（${r.wSrc}・${r.p.exitWifePensionAge}歳〜）から税${pct(r.p.exitPensionTaxRate,0)}を引く`)}
         ${line('③ 毎年の不足額', yen(r.G), '①−②')}
         ${line('④ 取り崩し用の資産', yen(r.core), `③÷取り崩し率${pct(r.p.exitWithdrawalRate)}、税${pct(r.p.exitWithdrawTaxRate,0)}を上乗せ`)}
         ${line('⑤ 年金が出るまでの空白期間', yen(r.bridge), r.bridgeYears ? `${r.retireYear}〜${r.fullYear-1}年の${r.bridgeYears}年分` : '空白期間なし')}
@@ -864,6 +898,18 @@ function drawExit(a){
         ${line('不足を埋める追加積立', r.extraMonthly > 0 ? '月 ' + yen(r.extraMonthly) : '不要', r.extraMonthly > 0 ? '波を考慮した予測が基準' : '', r.extraMonthly > 0 ? 'minus' : 'plus')}
       </tbody></table>
       <button class="btn ghost" id="applyGoal" type="button">この目標額をホームの目標にする</button>
+    </section>
+    <section class="card">
+      <h2>年金の概算の内訳（額面・年額）</h2>
+      <p class="note">2025年度の制度で計算した目安。正確な額は「ねんきんネット」で確認できます</p>
+      <table class="num"><thead><tr><th></th><th>夫</th><th>妻</th></tr></thead><tbody>
+        <tr><td>会社員の期間</td><td>${r.hEst.years}年</td><td>${r.wEst.years}年</td></tr>
+        <tr><td>基礎年金（国民年金）</td><td>${man(r.hEst.basic)}</td><td>${man(r.wEst.basic)}</td></tr>
+        <tr><td>厚生年金</td><td>${man(r.hEst.employee)}</td><td>${man(r.wEst.employee)}</td></tr>
+        <tr><td>65歳から受け取る場合</td><td>${man(r.hEst.total)}</td><td>${man(r.wEst.total)}</td></tr>
+        <tr><td>開始年齢を反映</td><td>${man(r.hPen)}</td><td>${man(r.wPen)}</td></tr>
+      </tbody></table>
+      <p class="note" style="margin-top:8px">${r.hSrc==='定期便'||r.wSrc==='定期便' ? '定期便の額を入れた人は、その額を優先して計算に使っています。' : '計算には上の概算を使っています。定期便の額を入れるとそちらを優先します。'}</p>
     </section>
     <section class="card">
       <h2>リタイア後の毎年のお金（今の価値）</h2>
