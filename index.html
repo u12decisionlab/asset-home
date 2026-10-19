@@ -145,7 +145,7 @@ details.tbl summary{font-size:12px;color:var(--navy2);cursor:pointer;margin-top:
 // ===== 設定 =====
 const API = 'https://script.google.com/macros/s/AKfycbzjxfSIXy5CjbfkSkjsjqaPKwG6ndCYKPTKPIGTAmyrTgHGlPYBSTFucoDluu6ZCJikuQ/exec';
 const KEY_STORE = 'assetHome.key';
-const APP_VERSION = '2026-10-19.5';
+const APP_VERSION = '2026-10-19.6';
 const CATEGORY_ORDER = ['国内株式','投資信託(成長)','投資信託(つみたて)','米国株式等'];
 
 // ===== 小道具 =====
@@ -201,13 +201,14 @@ async function apiPost(body){
 }
 
 // ===== 状態 =====
-const S = { data:null, tab:'home', draft:null, dirty:false, charts:[] };
+const S = { data:null, tab:'home', draft:null, dirty:false, charts:[], inputMonth:null };
 
 function normalize(d){
   d.cash = (d.cash||[]).map(c => ({...c, value:num(c.value)}));
   d.holdings = (d.holdings||[]).map(h => ({...h, value:num(h.value), cost:num(h.cost)}));
-  d.snapshots = (d.snapshots||[]).map(s => ({...s, id:String(s.id).slice(0,7), cash:num(s.cash), invest:num(s.invest)}))
-    .sort((a,b) => a.id < b.id ? -1 : 1);
+  const byId = {};
+  (d.snapshots||[]).forEach(s => { const id = String(s.id).slice(0,7); byId[id] = {...s, id, cash:num(s.cash), invest:num(s.invest)}; });
+  d.snapshots = Object.values(byId).sort((a,b) => a.id < b.id ? -1 : 1);
   d.assumptions = d.assumptions || {};
   return d;
 }
@@ -531,18 +532,39 @@ function ensureDraft(){
   return S.draft;
 }
 function viewInput(){
-  const D = ensureDraft(), cur = ym(new Date()), done = new Set(S.data.snapshots.map(s => s.id));
+  const D = ensureDraft(), today = ym(new Date()), snaps = S.data.snapshots;
+  const done = new Set(snaps.map(s => s.id));
+  if (!S.inputMonth || S.inputMonth > today) S.inputMonth = today;
+  const cur = S.inputMonth, latest = snaps.length ? snaps[snaps.length-1].id : '';
+  const pastMode = latest && cur < latest;      // 最新の記録より前の月 → 合計だけ記録・修正
+  const options = Array.from({length:24}, (_,i) => addMonths(today, -i));
   const year = cur.slice(0,4);
   const months = Array.from({length:12}, (_,i) => `${year}-${String(i+1).padStart(2,'0')}`);
   const cats = [...new Set([...CATEGORY_ORDER, ...D.holdings.map(h => h.category)])];
   const cashT = sum(D.cash, c => c.value), invT = sum(D.holdings, h => h.value);
-  $('#app').innerHTML = heroHTML() + `<main>
-    <section class="card">
+  const snapCur = snaps.find(x => x.id === cur);
+  const head = `<section class="card">
+      <label class="set-row" style="padding:0 0 10px"><span class="lb"><b>何月分として記録するか</b><small>初期値は今月。入力を忘れた月もここで選べます</small></span>
+        <select id="monthSel">${options.map(m => `<option value="${m}" ${m===cur?'selected':''}>${ymLabel(m)}${done.has(m)?' ✓':''}</option>`).join('')}</select></label>
       <div class="status ${done.has(cur)?'done':'todo'}">${done.has(cur)
-        ? `✓ ${ymLabel(cur)}分は反映済みです（入力し直して再反映もできます）`
-        : `● ${ymLabel(cur)}分はまだ反映されていません`}</div>
-      <div class="chips">${months.map(m => `<span class="chip ${done.has(m)?'on':''} ${m===cur?'now':''}">${Number(m.slice(5))}月${done.has(m)?' ✓':''}</span>`).join('')}</div>
-    </section>
+        ? `<span>✓ ${ymLabel(cur)}分は記録済みです。もう一度押すと<b>上書き</b>されます（2件にはなりません）</span>`
+        : `<span>● ${ymLabel(cur)}分はまだ記録されていません</span>`}</div>
+      <div class="chips">${months.map(m => `<button type="button" class="chip ${done.has(m)?'on':''} ${m===cur?'now':''}" data-m="${m}" ${m>today?'disabled':''} style="border:0">${Number(m.slice(5))}月${done.has(m)?' ✓':''}</button>`).join('')}</div>
+    </section>`;
+  if (pastMode){
+    $('#app').innerHTML = heroHTML() + `<main>${head}
+      <section class="card"><h2>${ymLabel(cur)}分の合計を入力</h2>
+        <p class="note">${ymLabel(latest)}より前の月なので、合計額だけを記録します。今の銘柄一覧や現金の内訳は変わりません。</p>
+        <label class="set-row"><span class="lb">現金の合計</span><span class="yen"><input type="text" inputmode="numeric" id="pCash" value="${snapCur ? Math.round(snapCur.cash).toLocaleString('ja-JP') : ''}"></span></label>
+        <label class="set-row"><span class="lb">投資の合計</span><span class="yen"><input type="text" inputmode="numeric" id="pInv" value="${snapCur ? Math.round(snapCur.invest).toLocaleString('ja-JP') : ''}"></span></label>
+        <button class="btn gold" id="commitPast">${ymLabel(cur)}分として${snapCur?'上書き':'記録'}</button>
+      </section></main>`;
+    bindHero(); bindMonth();
+    $('#commitPast').onclick = commitPast;
+    return;
+  }
+  $('#app').innerHTML = heroHTML() + `<main>
+    ${head}
     <section class="card"><h2>現金</h2>
       <div id="cashList">${D.cash.map((c,i) => `<div class="row">
         <div class="nm"><span>${esc(c.label)} <small>${esc(c.owner)}</small></span><button class="del" data-delcash="${i}">削除</button></div>
@@ -563,11 +585,11 @@ function viewInput(){
     </section>
     <section class="card">
       <div class="total-line num" style="font-size:16px"><span>総資産</span><span id="allTotal">${yen(cashT+invT)}</span></div>
-      <button class="btn gold" id="commit">この内容で${ymLabel(cur)}分を反映</button>
+      <button class="btn gold" id="commit">この内容で${ymLabel(cur)}分を${done.has(cur)?'上書き':'反映'}</button>
       ${S.dirty ? '<p class="note" style="margin-top:8px">※ 未反映の変更があります</p>' : ''}
     </section>
   </main>`;
-  bindHero();
+  bindHero(); bindMonth();
   const upd = () => {
     const ct = sum(D.cash, c=>c.value), it = sum(D.holdings, h=>h.value);
     $('#cashTotal').textContent = yen(ct); $('#invTotal').textContent = yen(it); $('#allTotal').textContent = yen(ct+it);
@@ -642,10 +664,26 @@ function addCashForm(){
   });
 }
 
+function bindMonth(){
+  const go = m => { S.inputMonth = m; viewInput(); };
+  $('#monthSel').onchange = e => go(e.target.value);
+  $('#app').querySelectorAll('.chips [data-m]').forEach(b => b.onclick = () => go(b.dataset.m));
+}
+async function commitPast(){
+  const cur = S.inputMonth, cash = num($('#pCash').value), invest = num($('#pInv').value);
+  const exists = S.data.snapshots.some(x => x.id === cur);
+  if (!confirm(`${ymLabel(cur)}分を${exists?'上書き':'記録'}します。\n現金 ${yen(cash)}\n投資 ${yen(invest)}\n合計 ${yen(cash+invest)}`)) return;
+  busy(true, '保存中…');
+  try {
+    await apiPost({action:'saveSnapshot', doc:{id:cur, date:cur+'-01', cash, invest}});
+    busy(false); await reload(`${ymLabel(cur)}分を記録しました`);
+  } catch(e){ busy(false); toast('保存に失敗：' + e.message, true); }
+}
 async function commit(){
-  const D = ensureDraft(), cur = ym(new Date());
+  const D = ensureDraft(), cur = S.inputMonth || ym(new Date());
+  const exists = S.data.snapshots.some(x => x.id === cur);
   const cash = sum(D.cash, c => c.value), invest = sum(D.holdings, h => h.value);
-  if (!confirm(`${ymLabel(cur)}分として保存します。\n現金 ${yen(cash)}\n投資 ${yen(invest)}\n合計 ${yen(cash+invest)}`)) return;
+  if (!confirm(`${ymLabel(cur)}分として${exists?'上書き':'保存'}します。\n現金 ${yen(cash)}\n投資 ${yen(invest)}\n合計 ${yen(cash+invest)}`)) return;
   busy(true, '保存中…');
   try {
     await apiPost({action:'saveCash', items:D.cash});
